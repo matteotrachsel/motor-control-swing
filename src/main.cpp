@@ -31,11 +31,27 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <DNSServer.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <HTTPUpdate.h>
+#include <Update.h>
 
 // ─── Network config ───────────────────────────────────────────
 // WiFi credentials are stored in NVS (set via AP setup portal).
 const char *HOSTNAME = "babyswing"; // → http://babyswing.local
 const char *AP_SSID  = "BabySwing-Setup"; // AP mode SSID (open)
+// ─────────────────────────────────────────────────────────────
+
+// ─── Firmware version & OTA URLs ─────────────────────────────
+// Increment FW_VERSION each release. Commit version.txt with the
+// same number to the main branch. Create a GitHub Release and
+// upload firmware.bin as an asset named "firmware.bin".
+const int   FW_VERSION     = 22;
+const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
+const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
+// ─── Manual /update page credentials ─────────────────────────
+const char *OTA_USER = "admin";
+const char *OTA_PASS = "babyswing"; // change to something personal
 // ─────────────────────────────────────────────────────────────
 
 // ─── Motor driver pins ───────────────────────────────────────
@@ -579,6 +595,11 @@ details.man[open] summary::before{transform:rotate(90deg)}
 
 <button class="estop" onclick="send({cmd:'stop'})">&#9899; Emergency Stop</button>
 
+<div style="display:flex;justify-content:space-between;width:100%;padding:0 .2rem">
+  <a href="/update"     style="font-size:.6rem;color:var(--dim);text-decoration:none">Firmware update</a>
+  <a href="/reset-wifi" style="font-size:.6rem;color:var(--dim);text-decoration:none">Reset WiFi</a>
+</div>
+
 <script>
 var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400};
 var ws,rt,ht,rd=1000,deferredPrompt=null;
@@ -899,6 +920,221 @@ void handleRoot() { httpSrv.send_P(200, "text/html; charset=utf-8", HTML); }
 void handleManifest() { httpSrv.send_P(200, "application/manifest+json", MANIFEST); }
 void handleIcon() { httpSrv.send_P(200, "image/svg+xml", ICON_SVG); }
 
+// ════════════════════════════════════════════════════════════
+//  AUTO OTA — check GitHub on boot, flash if newer version found
+// ════════════════════════════════════════════════════════════
+
+void checkAndApplyOTA()
+{
+  Serial.printf("[OTA] Checking for update (local v%d)…\n", FW_VERSION);
+
+  WiFiClientSecure verClient;
+  verClient.setInsecure(); // skip cert validation — fine for home use
+  verClient.setTimeout(5);
+
+  HTTPClient http;
+  http.begin(verClient, GITHUB_VER_URL);
+  http.setTimeout(5000);
+  int code = http.GET();
+
+  if (code != 200) {
+    Serial.printf("[OTA] Version check failed (HTTP %d) — skipping\n", code);
+    http.end();
+    return;
+  }
+
+  String body = http.getString();
+  http.end();
+  body.trim();
+  int remoteVer = body.toInt();
+
+  Serial.printf("[OTA] Local v%d  Remote v%d\n", FW_VERSION, remoteVer);
+
+  if (remoteVer <= FW_VERSION) {
+    Serial.println("[OTA] Already up to date");
+    return;
+  }
+
+  Serial.printf("[OTA] Updating to v%d — stopping motor and downloading…\n", remoteVer);
+  hardStop(); // safety: stop motor before any flash write
+
+  WiFiClientSecure dlClient;
+  dlClient.setInsecure();
+
+  httpUpdate.setLedPin(LED_BUILTIN, LOW); // blink built-in LED during flash
+  httpUpdate.rebootOnUpdate(true);        // auto-reboot on success
+
+  t_httpUpdate_return ret = httpUpdate.update(dlClient, GITHUB_BIN_URL);
+
+  // Only reached if update FAILED (success causes immediate reboot)
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("[OTA] Failed (%d): %s\n",
+                    httpUpdate.getLastError(),
+                    httpUpdate.getLastErrorString().c_str());
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("[OTA] Server reports no update");
+      break;
+    default:
+      break;
+  }
+  // On failure: continue with existing firmware — swing UI will start normally
+}
+
+// ════════════════════════════════════════════════════════════
+//  MANUAL OTA — web upload page at /update
+// ════════════════════════════════════════════════════════════
+
+const char OTA_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#00d4aa">
+<title>Baby Swing – Firmware Update</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
+      --acc:#00d4aa;--red:#ff4466}
+html,body{min-height:100%;background:var(--bg);color:var(--txt);
+  font-family:system-ui,-apple-system,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;
+  padding:2rem 1rem;max-width:420px;margin:0 auto;gap:1.4rem}
+.hdr-t{font-size:1rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--acc);font-weight:700;align-self:flex-start}
+.sub{font-size:.72rem;color:var(--dim);align-self:flex-start;margin-top:-.8rem}
+.card{width:100%;background:var(--srf);border:1px solid var(--bdr);
+  border-radius:12px;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
+.ver{font-size:.75rem;color:var(--dim)}
+.ver b{color:var(--txt)}
+label.pick{display:flex;flex-direction:column;gap:.4rem;
+  font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+  cursor:pointer}
+input[type=file]{background:var(--bg);border:1px solid var(--bdr);
+  border-radius:7px;padding:.6rem .8rem;color:var(--txt);font-size:.82rem;width:100%}
+.up-btn{width:100%;padding:1rem;border:none;border-radius:10px;
+  background:var(--acc);color:#0a0a0f;font-size:.9rem;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.up-btn:active{opacity:.8}
+.up-btn:disabled{opacity:.4;cursor:default}
+.bar-wrap{width:100%;height:10px;background:var(--bdr);border-radius:5px;
+  overflow:hidden;display:none}
+.bar{height:100%;width:0%;background:var(--acc);border-radius:5px;
+  transition:width .2s}
+#msg{font-size:.8rem;text-align:center;min-height:1.2em;line-height:1.5}
+.ok{color:var(--acc)}.err{color:var(--red)}
+a.back{font-size:.65rem;color:var(--dim);text-decoration:none}
+a.back:hover{color:var(--txt)}
+</style>
+</head>
+<body>
+<span class="hdr-t">Baby Swing</span>
+<span class="sub">Manual firmware update &mdash; auto-update runs on every boot</span>
+<div class="card">
+  <div class="ver">Current firmware: <b>v__VER__</b></div>
+  <label class="pick">
+    Select firmware file (.bin)
+    <input type="file" id="bin" accept=".bin">
+  </label>
+  <div class="bar-wrap" id="bw"><div class="bar" id="bar"></div></div>
+  <div id="msg"></div>
+  <button class="up-btn" id="upbtn" onclick="doUpload()">Upload &amp; Flash</button>
+</div>
+<a class="back" href="/">&larr; Back to swing</a>
+<script>
+function showMsg(t,c){var e=document.getElementById('msg');e.textContent=t;e.className=c||'';}
+function doUpload(){
+  var f=document.getElementById('bin').files[0];
+  if(!f){showMsg('Please select a .bin file','err');return;}
+  if(!f.name.endsWith('.bin')){showMsg('File must be a .bin','err');return;}
+  var btn=document.getElementById('upbtn');
+  btn.disabled=true;
+  var bw=document.getElementById('bw');
+  var bar=document.getElementById('bar');
+  bw.style.display='block';
+  showMsg('Uploading\u2026','ok');
+  var fd=new FormData();
+  fd.append('firmware',f,f.name);
+  var xhr=new XMLHttpRequest();
+  xhr.upload.onprogress=function(e){
+    if(e.lengthComputable){
+      var p=Math.round(e.loaded/e.total*100);
+      bar.style.width=p+'%';
+      showMsg('Uploading\u2026 '+p+'%','ok');
+    }
+  };
+  xhr.onload=function(){
+    bar.style.width='100%';
+    if(xhr.status===200&&xhr.responseText==='OK'){
+      showMsg('Flashed successfully \u2014 device is rebooting\u2026','ok');
+    } else {
+      showMsg('Error: '+(xhr.responseText||'Upload failed'),'err');
+      btn.disabled=false;
+    }
+  };
+  xhr.onerror=function(){showMsg('Connection lost during upload','err');btn.disabled=false;};
+  xhr.open('POST','/update');
+  xhr.send(fd);
+}
+</script>
+</body>
+</html>
+)rawliteral";
+
+void handleOTAPage()
+{
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+    return httpSrv.requestAuthentication();
+  }
+  // Inject current firmware version into the HTML
+  String html = String(OTA_HTML);
+  html.replace("__VER__", String(FW_VERSION));
+  httpSrv.send(200, "text/html; charset=utf-8", html);
+}
+
+void handleOTAUploadDone()
+{
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+    return httpSrv.requestAuthentication();
+  }
+  if (Update.hasError()) {
+    String err = "FAIL: " + String(Update.errorString());
+    httpSrv.send(500, "text/plain", err);
+    Serial.printf("[OTA] Manual upload failed: %s\n", Update.errorString());
+  } else {
+    httpSrv.send(200, "text/plain", "OK");
+    Serial.println("[OTA] Manual upload complete — rebooting");
+    delay(500);
+    ESP.restart();
+  }
+}
+
+void handleOTAUploadData()
+{
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+    return httpSrv.requestAuthentication();
+  }
+  HTTPUpload &upload = httpSrv.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    Serial.printf("[OTA] Manual upload start: %s\n", upload.filename.c_str());
+    hardStop(); // stop motor before touching flash
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      Serial.printf("[OTA] Manual upload done: %u bytes\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+
 void handleHttpStop()
 { // HTTP fallback stop (works if WebSocket is broken)
   hardStop();
@@ -1007,14 +1243,20 @@ void startNormalMode()
 {
   Serial.printf("[WiFi] Connected!  http://%s\n", WiFi.localIP().toString().c_str());
 
+  // Check GitHub for a newer firmware version; flash and reboot if found.
+  // On any network error the function returns immediately and boot continues.
+  checkAndApplyOTA();
+
   if (MDNS.begin(HOSTNAME))
     Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
 
-  httpSrv.on("/",            handleRoot);
+  httpSrv.on("/",              handleRoot);
   httpSrv.on("/manifest.json", handleManifest);
-  httpSrv.on("/icon.svg",    handleIcon);
-  httpSrv.on("/stop",        handleHttpStop);
-  httpSrv.on("/reset-wifi",  handleResetWifi); // clear creds → back to AP
+  httpSrv.on("/icon.svg",      handleIcon);
+  httpSrv.on("/stop",          handleHttpStop);
+  httpSrv.on("/reset-wifi",    handleResetWifi);
+  httpSrv.on("/update", HTTP_GET,  handleOTAPage);
+  httpSrv.on("/update", HTTP_POST, handleOTAUploadDone, handleOTAUploadData);
   httpSrv.begin();
 
   wsSrv.begin();

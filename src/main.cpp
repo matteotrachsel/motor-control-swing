@@ -29,11 +29,13 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
+#include <DNSServer.h>
 
-// ─── WiFi credentials ────────────────────────────────────────
-const char *WIFI_SSID = "Vapporio";
-const char *WIFI_PASSWORD = "Ne.k4019d";
+// ─── Network config ───────────────────────────────────────────
+// WiFi credentials are stored in NVS (set via AP setup portal).
 const char *HOSTNAME = "babyswing"; // → http://babyswing.local
+const char *AP_SSID  = "BabySwing-Setup"; // AP mode SSID (open)
 // ─────────────────────────────────────────────────────────────
 
 // ─── Motor driver pins ───────────────────────────────────────
@@ -48,7 +50,6 @@ const int PWM_BITS = 8; // 0–255
 
 // ─── Safety limits ───────────────────────────────────────────
 const int MAX_SPEED_PCT = 80;   // hard cap — never exceeded
-const long WATCHDOG_MS = 30000; // stop motor if no client this long
 
 // ─── Motor state ─────────────────────────────────────────────
 enum MotorDir
@@ -70,8 +71,20 @@ int g_swingSpd = 40; // % to use when swing starts
 int g_clients = 0;
 ulong g_lastAct = 0;
 
-WebServer httpSrv(80);
+// ─── Run timer ───────────────────────────────────────────────
+int  g_timerMins = 0;  // 0 = no timer; >0 = run this many minutes then stop
+ulong g_timerEnd  = 0; // millis() when timer fires; 0 = no active timer
+
+// ─── Kick-start (start boost) ─────────────────────────
+int  g_kickPct = 0;    // boost % — 0 = off; typical: 60, 80, 100
+int  g_kickMs  = 400;  // boost duration ms — typical: 200, 400, 600, 1000
+ulong g_kickEnd = 0;   // millis() when kick pulse ends; 0 = not kicking
+
+WebServer       httpSrv(80);
 WebSocketsServer wsSrv(81);
+Preferences     prefs;
+DNSServer       dnsServer;
+bool            g_apMode = false; // true = running WiFi config portal
 
 // ════════════════════════════════════════════════════════════
 //  MOTOR
@@ -106,9 +119,23 @@ void applyMotor(MotorDir dir, int pct)
                 g_spd);
 }
 
+void applyMotorRaw(MotorDir dir, int pct)
+{
+  pct = constrain(pct, 0, 100);
+  g_dir = dir;
+  g_spd = (dir == MSTOP) ? 0 : pct;
+  if (dir == MFWD)      { digitalWrite(PIN_IN1, HIGH); digitalWrite(PIN_IN2, LOW); }
+  else if (dir == MREV) { digitalWrite(PIN_IN1, LOW);  digitalWrite(PIN_IN2, HIGH); }
+  else                  { digitalWrite(PIN_IN1, LOW);  digitalWrite(PIN_IN2, LOW); }
+  ledcWrite(PWM_CH, (dir == MSTOP) ? 0 : map(pct, 0, 100, 0, 255));
+  Serial.printf("[Kick] RAW FWD %d%%\n", pct);
+}
+
 void hardStop()
 {
   g_swinging = false;
+  g_timerEnd  = 0;
+  g_kickEnd   = 0;
   applyMotor(MSTOP, 0);
 }
 
@@ -124,13 +151,21 @@ const char *dirStr(MotorDir d)
 
 String stateJSON()
 {
-  char buf[128];
+  ulong now2 = millis();
+  int timerSec = -1;
+  if (g_timerEnd != 0 && g_swinging)
+    timerSec = (g_timerEnd > now2) ? (int)((g_timerEnd - now2) / 1000) : 0;
+  char buf[280];
   snprintf(buf, sizeof(buf),
            "{\"swing\":%s,\"speed\":%d,\"dir\":\"%s\","
-           "\"swingSpd\":%d,\"clients\":%d}",
+           "\"swingSpd\":%d,\"clients\":%d,"
+           "\"timerMins\":%d,\"timerSec\":%d,"
+           "\"kickPct\":%d,\"kickMs\":%d}",
            g_swinging ? "true" : "false",
            g_spd, dirStr(g_dir),
-           g_swingSpd, g_clients);
+           g_swingSpd, g_clients,
+           g_timerMins, timerSec,
+           g_kickPct, g_kickMs);
   return String(buf);
 }
 
@@ -138,6 +173,61 @@ void broadcast()
 {
   String s = stateJSON();
   wsSrv.broadcastTXT(s);
+}
+
+void saveSettings()
+{
+  prefs.begin("swing", false);
+  prefs.putInt("swingSpd",  g_swingSpd);
+  prefs.putInt("timerMins", g_timerMins);
+  prefs.putInt("kickPct",   g_kickPct);
+  prefs.putInt("kickMs",    g_kickMs);
+  prefs.end();
+  Serial.println("[NVS] settings saved");
+}
+
+// ─── WiFi credential NVS helpers ─────────────────────────────
+
+bool loadWifiCreds(String &ssid, String &pass)
+{
+  prefs.begin("wifi", true);
+  ssid = prefs.getString("ssid", "");
+  pass = prefs.getString("pass", "");
+  prefs.end();
+  return ssid.length() > 0;
+}
+
+void saveWifiCreds(const String &ssid, const String &pass)
+{
+  prefs.begin("wifi", false);
+  prefs.putString("ssid", ssid);
+  prefs.putString("pass", pass);
+  prefs.end();
+  Serial.println("[NVS] WiFi credentials saved");
+}
+
+void clearWifiCreds()
+{
+  prefs.begin("wifi", false);
+  prefs.remove("ssid");
+  prefs.remove("pass");
+  prefs.end();
+  Serial.println("[NVS] WiFi credentials cleared");
+}
+
+// ─── Helper: escape a string for JSON output ─────────────────
+static String jsonEsc(const String &s)
+{
+  String r;
+  r.reserve(s.length());
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s.charAt(i);
+    if      (c == '"')  r += "\\\"";
+    else if (c == '\\') r += "\\\\";
+    else if (c < 0x20)  r += ' ';
+    else                r += c;
+  }
+  return r;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -207,9 +297,23 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     if (s.length())
       g_swingSpd = constrain(s.toInt(), 5, MAX_SPEED_PCT);
     g_swinging = true;
-    applyMotor(MFWD, g_swingSpd); // run forward continuously — crank does the swinging
+    if (g_timerMins > 0)
+      g_timerEnd = millis() + (ulong)g_timerMins * 60000UL;
+    else
+      g_timerEnd = 0;
+    if (g_kickPct > 0 && g_kickPct > g_swingSpd)
+    {
+      applyMotorRaw(MFWD, g_kickPct);
+      g_kickEnd = millis() + (ulong)g_kickMs;
+      Serial.printf("[Kick] %d%% for %dms → run %d%%\n", g_kickPct, g_kickMs, g_swingSpd);
+    }
+    else
+    {
+      g_kickEnd = 0;
+      applyMotor(MFWD, g_swingSpd);
+    }
     broadcast();
-    Serial.printf("[Swing] START  spd=%d%%\n", g_swingSpd);
+    Serial.printf("[Swing] START  spd=%d%%  timer=%dmin\n", g_swingSpd, g_timerMins);
   }
   else if (cmd == "swing_stop")
   {
@@ -238,6 +342,7 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
       g_swingSpd = constrain(s.toInt(), 5, MAX_SPEED_PCT);
       if (g_swinging) applyMotor(MFWD, g_swingSpd);
+      saveSettings();
       broadcast();
     }
   }
@@ -245,6 +350,34 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   {
     hardStop();
     broadcast();
+  }
+  else if (cmd == "set_timer")
+  {
+    String m = jval(p, "minutes");
+    if (m.length())
+    {
+      g_timerMins = constrain(m.toInt(), 0, 240);
+      if (g_swinging)
+      {
+        if (g_timerMins > 0)
+          g_timerEnd = millis() + (ulong)g_timerMins * 60000UL;
+        else
+          g_timerEnd = 0;
+      }
+      saveSettings();
+      broadcast();
+      Serial.printf("[Timer] set to %d min\n", g_timerMins);
+    }
+  }
+  else if (cmd == "set_kick")
+  {
+    String kPct = jval(p, "pct");
+    String kMs  = jval(p, "ms");
+    if (kPct.length()) g_kickPct = constrain(kPct.toInt(), 0, 100);
+    if (kMs.length())  g_kickMs  = constrain(kMs.toInt(), 50, 2000);
+    saveSettings();
+    broadcast();
+    Serial.printf("[Kick] set pct=%d  ms=%d\n", g_kickPct, g_kickMs);
   }
 }
 
@@ -352,6 +485,27 @@ details.man[open] summary::before{transform:rotate(90deg)}
   letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
   -webkit-tap-highlight-color:transparent;transition:all .15s}
 .estop:active{background:var(--red);color:#fff}
+
+/* Timer card */
+.tbtns{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.6rem}
+.tbtn{flex:1 1 calc(16.6% - .45rem);min-width:2.8rem;padding:.55rem .2rem;
+  border:1px solid var(--bdr);border-radius:7px;background:var(--srf);
+  color:var(--dim);font-size:.68rem;font-weight:600;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;transition:all .15s;text-align:center}
+.tbtn:active{transform:scale(.93)}
+.tbtn.ta{border-color:var(--acc);background:#00d4aa14;color:var(--acc)}
+.tcd{margin-top:.65rem;font-size:.78rem;font-weight:600;color:var(--acc);
+  text-align:center;letter-spacing:.05em;min-height:1.1em}
+
+/* Kick-start card */
+.krow{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.5rem}
+.kbtn{flex:1 1 calc(25% - .45rem);min-width:3rem;padding:.55rem .2rem;
+  border:1px solid var(--bdr);border-radius:7px;background:var(--srf);
+  color:var(--dim);font-size:.68rem;font-weight:600;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;transition:all .15s;text-align:center}
+.kbtn:active{transform:scale(.93)}
+.kbtn.ka{border-color:var(--acc);background:#00d4aa14;color:var(--acc)}
+.klbl{font-size:.6rem;color:var(--dim);margin:.5rem 0 .3rem}
 </style>
 </head>
 <body>
@@ -384,8 +538,38 @@ details.man[open] summary::before{transform:rotate(90deg)}
     oninput="document.getElementById('sv').textContent=this.value;spdInput(this.value)">
 </div>
 
+<div class="card">
+  <div class="slab">Timer&nbsp;<b id="tv">Off</b></div>
+  <div class="tbtns">
+    <button class="tbtn" id="tb0"  onclick="setTimer(0)">Off</button>
+    <button class="tbtn" id="tb15" onclick="setTimer(15)">15m</button>
+    <button class="tbtn" id="tb30" onclick="setTimer(30)">30m</button>
+    <button class="tbtn" id="tb45" onclick="setTimer(45)">45m</button>
+    <button class="tbtn" id="tb60" onclick="setTimer(60)">1h</button>
+    <button class="tbtn" id="tb90" onclick="setTimer(90)">90m</button>
+  </div>
+  <div class="tcd" id="tcd"></div>
+</div>
+
 <details class="man">
   <summary>Manual control (setup / maintenance)</summary>
+  <div class="card" style="margin-top:.8rem">
+    <div class="slab">Start boost&nbsp;<b id="kv">Off</b></div>
+    <div class="klbl">Boost level</div>
+    <div class="krow">
+      <button class="kbtn" id="kb0"   onclick="setKick(0,null)">Off</button>
+      <button class="kbtn" id="kb60"  onclick="setKick(60,null)">60%</button>
+      <button class="kbtn" id="kb80"  onclick="setKick(80,null)">80%</button>
+      <button class="kbtn" id="kb100" onclick="setKick(100,null)">100%</button>
+    </div>
+    <div class="klbl">Duration</div>
+    <div class="krow">
+      <button class="kbtn" id="kd200"  onclick="setKick(null,200)">200ms</button>
+      <button class="kbtn" id="kd400"  onclick="setKick(null,400)">400ms</button>
+      <button class="kbtn" id="kd600"  onclick="setKick(null,600)">600ms</button>
+      <button class="kbtn" id="kd1000" onclick="setKick(null,1000)">1s</button>
+    </div>
+  </div>
   <div class="mrow">
     <button class="mb" id="mf" onclick="manual('forward')">&#9650; Fwd</button>
     <button class="mb"         onclick="send({cmd:'stop'})">&#9632; Stop</button>
@@ -396,8 +580,9 @@ details.man[open] summary::before{transform:rotate(90deg)}
 <button class="estop" onclick="send({cmd:'stop'})">&#9899; Emergency Stop</button>
 
 <script>
-var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0};
+var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400};
 var ws,rt,ht,rd=1000,deferredPrompt=null;
+var cdInt=null; // countdown interval
 
 /* ── PWA install ── */
 window.addEventListener('beforeinstallprompt',function(e){
@@ -476,9 +661,66 @@ function render(s){
   document.getElementById('mr').className=
     'mb'+((!s.swing&&s.dir==='reverse')?' ar':'');
 
+  // Timer buttons highlight
+  var tids=[0,15,30,45,60,90];
+  tids.forEach(function(v){
+    var el=document.getElementById('tb'+v);
+    if(el) el.className='tbtn'+(s.timerMins===v?' ta':'');
+  });
+  document.getElementById('tv').textContent=s.timerMins>0?(s.timerMins+'m'):'Off';
+  // Countdown — sync from server, then tick locally
+  if(s.swing&&s.timerSec>=0){
+    startCountdown(s.timerSec);
+  } else {
+    stopCountdown();
+  }
+
+  // Kick-start button highlights
+  [0,60,80,100].forEach(function(v){
+    var el=document.getElementById('kb'+v);
+    if(el)el.className='kbtn'+(s.kickPct===v?' ka':'');
+  });
+  [200,400,600,1000].forEach(function(v){
+    var el=document.getElementById('kd'+v);
+    if(el)el.className='kbtn'+(s.kickMs===v?' ka':'');
+  });
+  document.getElementById('kv').textContent=
+    s.kickPct>0?(s.kickPct+'% / '+s.kickMs+'ms'):'Off';
+
   document.getElementById('dot').className='dot ok';
   document.getElementById('ct').textContent=
     s.clients+' device'+(s.clients!==1?'s':'')+' connected';
+}
+
+/* ── Timer ── */
+function setTimer(m){
+  send({cmd:'set_timer',minutes:m});
+}
+function setKick(pct,ms){
+  send({cmd:'set_kick',
+        pct:pct!==null?pct:S.kickPct,
+        ms:ms!==null?ms:S.kickMs});
+}
+function fmtSec(s){
+  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  if(h>0) return h+'h '+String(m).padStart(2,'0')+'m '+String(sec).padStart(2,'0')+'s';
+  return String(m).padStart(2,'0')+'m '+String(sec).padStart(2,'0')+'s';
+}
+function startCountdown(secs){
+  clearInterval(cdInt);
+  var rem=secs;
+  function tick(){
+    var el=document.getElementById('tcd');
+    if(rem<=0){el.textContent='';clearInterval(cdInt);return;}
+    el.textContent='⏱ '+fmtSec(rem)+' remaining';
+    rem--;
+  }
+  tick();
+  cdInt=setInterval(tick,1000);
+}
+function stopCountdown(){
+  clearInterval(cdInt);
+  document.getElementById('tcd').textContent='';
 }
 
 /* ── Controls ── */
@@ -529,6 +771,130 @@ const char ICON_SVG[] PROGMEM = R"rawliteral(<svg xmlns="http://www.w3.org/2000/
 <polygon points="42,32 42,68 72,50" fill="#00d4aa"/>
 </svg>)rawliteral";
 
+// ─── WiFi setup portal HTML (served in AP mode) ───────────
+const char AP_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#00d4aa">
+<title>Baby Swing – WiFi Setup</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
+      --acc:#00d4aa;--red:#ff4466}
+html,body{min-height:100%;background:var(--bg);color:var(--txt);
+  font-family:system-ui,-apple-system,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;
+  padding:2rem 1rem;max-width:420px;margin:0 auto;gap:1.4rem}
+.hdr-t{font-size:1rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--acc);font-weight:700;align-self:flex-start}
+.sub{font-size:.72rem;color:var(--dim);align-self:flex-start;margin-top:-.8rem}
+.card{width:100%;background:var(--srf);border:1px solid var(--bdr);
+  border-radius:12px;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
+label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+.irow{display:flex;gap:.5rem;align-items:stretch}
+input[type=text],input[type=password]{flex:1;background:var(--bg);
+  border:1px solid var(--bdr);border-radius:7px;padding:.65rem .8rem;
+  color:var(--txt);font-size:.88rem;outline:none;width:100%}
+input:focus{border-color:var(--acc)}
+.scan-btn,.show-btn{padding:.65rem .9rem;border:1px solid var(--bdr);
+  border-radius:7px;background:var(--bg);color:var(--dim);font-size:.73rem;
+  font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.05em}
+.scan-btn:active,.show-btn:active{background:var(--bdr)}
+.scan-btn:disabled{opacity:.45;cursor:default}
+select#netlist{width:100%;background:var(--bg);border:1px solid var(--bdr);
+  border-radius:7px;padding:.45rem .5rem;color:var(--txt);font-size:.82rem;
+  display:none;margin-top:.4rem}
+.save-btn{width:100%;padding:1rem;border:none;border-radius:10px;
+  background:var(--acc);color:#0a0a0f;font-size:.9rem;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.save-btn:active{opacity:.8}
+.save-btn:disabled{opacity:.4;cursor:default}
+#msg{font-size:.8rem;text-align:center;min-height:1.2em;line-height:1.5}
+.ok{color:var(--acc)}.err{color:var(--red)}
+</style>
+</head>
+<body>
+<span class="hdr-t">Baby Swing</span>
+<span class="sub">One-time WiFi setup &mdash; credentials are stored on the device</span>
+<div class="card">
+  <div>
+    <label>WiFi Network (SSID)</label>
+    <div class="irow" style="margin-top:.4rem">
+      <input type="text" id="ssid" placeholder="Network name"
+        autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+      <button class="scan-btn" id="scanbtn" onclick="doScan()">Scan</button>
+    </div>
+    <select id="netlist" size="5"
+      onchange="document.getElementById('ssid').value=this.value"></select>
+  </div>
+  <div>
+    <label>Password</label>
+    <div class="irow" style="margin-top:.4rem">
+      <input type="password" id="pass" placeholder="WiFi password" autocomplete="off">
+      <button class="show-btn" id="showbtn" onclick="togglePwd()">Show</button>
+    </div>
+  </div>
+  <div id="msg"></div>
+  <button class="save-btn" id="savebtn" onclick="doSave()">Connect &amp; Save</button>
+</div>
+<script>
+function doScan(){
+  var btn=document.getElementById('scanbtn');
+  btn.textContent='...';btn.disabled=true;
+  fetch('/scan').then(function(r){return r.json();}).then(function(nets){
+    var sel=document.getElementById('netlist');
+    sel.innerHTML='';
+    nets.sort(function(a,b){return b.rssi-a.rssi;});
+    nets.forEach(function(n){
+      var o=document.createElement('option');
+      o.value=n.ssid;
+      o.textContent=n.ssid+' ('+n.rssi+'dBm'+(n.secure?' \uD83D\uDD12':'')+')';
+      sel.appendChild(o);
+    });
+    sel.style.display=nets.length?'block':'none';
+    btn.textContent='Scan';btn.disabled=false;
+  }).catch(function(){
+    btn.textContent='Scan';btn.disabled=false;
+    showMsg('Scan failed — enter SSID manually','err');
+  });
+}
+function togglePwd(){
+  var i=document.getElementById('pass');
+  var b=document.getElementById('showbtn');
+  if(i.type==='password'){i.type='text';b.textContent='Hide';}
+  else{i.type='password';b.textContent='Show';}
+}
+function showMsg(text,cls){
+  var el=document.getElementById('msg');
+  el.textContent=text;el.className=cls||'';
+}
+function doSave(){
+  var ssid=document.getElementById('ssid').value.trim();
+  var pass=document.getElementById('pass').value;
+  if(!ssid){showMsg('Please enter a network name','err');return;}
+  if(ssid.length>32){showMsg('SSID too long (max 32 chars)','err');return;}
+  if(pass.length>64){showMsg('Password too long (max 64 chars)','err');return;}
+  var btn=document.getElementById('savebtn');
+  btn.disabled=true;
+  showMsg('Saving\u2026','ok');
+  var body='ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass);
+  fetch('/save',{method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:body})
+  .then(function(){
+    showMsg('Saved! The device will restart and connect to \u201C'+ssid+
+      '\u201D.\n\nReconnect your phone to that WiFi network, then open\nhttp://babyswing.local','ok');
+  }).catch(function(){
+    showMsg('Saved! Device is restarting\u2026','ok');
+  });
+}
+</script>
+</body>
+</html>
+)rawliteral";
+
 void handleRoot() { httpSrv.send_P(200, "text/html; charset=utf-8", HTML); }
 void handleManifest() { httpSrv.send_P(200, "application/manifest+json", MANIFEST); }
 void handleIcon() { httpSrv.send_P(200, "image/svg+xml", ICON_SVG); }
@@ -540,10 +906,125 @@ void handleHttpStop()
   httpSrv.send(200, "application/json", stateJSON());
 }
 
+// ─── /reset-wifi  (normal mode) ──────────────────────────────
+// Clears stored WiFi credentials and reboots into AP setup mode.
+void handleResetWifi()
+{
+  clearWifiCreds();
+  httpSrv.send(200, "text/html; charset=utf-8",
+    "<html><head><meta charset='UTF-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta name='theme-color' content='#00d4aa'>"
+    "<style>body{background:#0a0a0f;color:#e0e0e8;"
+    "font-family:system-ui,sans-serif;text-align:center;padding:2rem}"
+    "h2{color:#00d4aa}p{margin-top:1rem;color:#6b6b80;font-size:.85rem}</style></head>"
+    "<body><h2>WiFi Reset</h2>"
+    "<p>Credentials cleared. Device is restarting into setup mode.</p>"
+    "<p>Connect to WiFi <b>BabySwing-Setup</b> to reconfigure.</p>"
+    "</body></html>");
+  delay(1500);
+  ESP.restart();
+}
+
+// ─── AP mode handlers ────────────────────────────────────────
+
+void handleAPRoot()
+{
+  httpSrv.send_P(200, "text/html; charset=utf-8", AP_HTML);
+}
+
+void handleAPScan()
+{
+  // Scan for nearby networks (blocking ~2-3 s)
+  WiFi.mode(WIFI_AP_STA); // need STA side active to scan
+  int n = WiFi.scanNetworks(false, false);
+  String json = "[";
+  for (int i = 0; i < n; i++) {
+    if (i) json += ",";
+    json += "{\"ssid\":\"" + jsonEsc(WiFi.SSID(i)) + "\","
+            "\"rssi\":"   + WiFi.RSSI(i) + ","
+            "\"secure\":"+ (WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
+  }
+  json += "]";
+  WiFi.scanDelete();
+  WiFi.mode(WIFI_AP); // restore AP-only
+  httpSrv.send(200, "application/json", json);
+}
+
+void handleAPSave()
+{
+  String ssid = httpSrv.arg("ssid");
+  String pass = httpSrv.arg("pass");
+  ssid.trim();
+
+  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 64) {
+    httpSrv.send(400, "text/plain", "Invalid input");
+    return;
+  }
+
+  saveWifiCreds(ssid, pass);
+  httpSrv.send(200, "text/plain", "OK");
+  Serial.printf("[AP] Credentials saved for SSID: %s — restarting\n", ssid.c_str());
+  delay(800); // let HTTP response reach the browser
+  ESP.restart();
+}
+
 // ════════════════════════════════════════════════════════════
 //  SETUP
 // ════════════════════════════════════════════════════════════
 
+// ─── Start: AP config portal ─────────────────────────────────
+void startAPMode()
+{
+  g_apMode = true;
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID); // open network — no password required
+
+  // Captive portal: redirect all DNS queries to our IP
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(53, "*", WiFi.softAPIP());
+
+  // Register AP routes
+  httpSrv.on("/",     HTTP_GET,  handleAPRoot);
+  httpSrv.on("/scan", HTTP_GET,  handleAPScan);
+  httpSrv.on("/save", HTTP_POST, handleAPSave);
+  // Catch-all: redirect to setup page (makes captive portal work on iOS/Android)
+  httpSrv.onNotFound([]() {
+    httpSrv.sendHeader("Location", "http://192.168.4.1/");
+    httpSrv.send(302, "text/plain", "");
+  });
+  httpSrv.begin();
+
+  Serial.println("[AP] Started portal: BabySwing-Setup");
+  Serial.printf("[AP] Connect to WiFi '%s' then open http://192.168.4.1\n", AP_SSID);
+  Serial.printf("[AP] (or http://%s)\n", WiFi.softAPIP().toString().c_str());
+}
+
+// ─── Start: normal swing mode ────────────────────────────────
+void startNormalMode()
+{
+  Serial.printf("[WiFi] Connected!  http://%s\n", WiFi.localIP().toString().c_str());
+
+  if (MDNS.begin(HOSTNAME))
+    Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
+
+  httpSrv.on("/",            handleRoot);
+  httpSrv.on("/manifest.json", handleManifest);
+  httpSrv.on("/icon.svg",    handleIcon);
+  httpSrv.on("/stop",        handleHttpStop);
+  httpSrv.on("/reset-wifi",  handleResetWifi); // clear creds → back to AP
+  httpSrv.begin();
+
+  wsSrv.begin();
+  wsSrv.onEvent(onWsEvent);
+
+  g_lastAct = millis();
+  Serial.println("[Normal] Ready!");
+}
+
+// ─── Arduino setup ───────────────────────────────────────────
 void setup()
 {
   Serial.begin(115200);
@@ -551,43 +1032,54 @@ void setup()
   Serial.println("  Baby Swing Controller v2.1");
   Serial.println("===========================");
 
+  // Hardware init — motor stopped from the very start
   pinMode(PIN_IN1, OUTPUT);
   pinMode(PIN_IN2, OUTPUT);
   ledcSetup(PWM_CH, PWM_FREQ, PWM_BITS);
   ledcAttachPin(PIN_ENA, PWM_CH);
   hardStop();
 
-  // WiFi
+  // Load persisted swing settings from NVS
+  prefs.begin("swing", true);
+  g_swingSpd  = prefs.getInt("swingSpd",  g_swingSpd);
+  g_timerMins = prefs.getInt("timerMins", g_timerMins);
+  g_kickPct   = prefs.getInt("kickPct",   g_kickPct);
+  g_kickMs    = prefs.getInt("kickMs",    g_kickMs);
+  prefs.end();
+  Serial.printf("[NVS] swingSpd=%d  timerMins=%d  kickPct=%d  kickMs=%d\n",
+                g_swingSpd, g_timerMins, g_kickPct, g_kickMs);
+
+  // ── WiFi ──────────────────────────────────────────────────
+  String ssid, pass;
+  bool hasCreds = loadWifiCreds(ssid, pass);
+
+  if (!hasCreds) {
+    Serial.println("[WiFi] No credentials stored → starting AP setup portal");
+    startAPMode();
+    return;
+  }
+
+  // Attempt to connect with stored credentials
+  WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("WiFi");
-  for (int i = 0; WiFi.status() != WL_CONNECTED && i < 40; i++)
-  {
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  Serial.printf("[WiFi] Connecting to \"%s\"", ssid.c_str());
+
+  const int CONNECT_TIMEOUT_MS = 15000; // 15 s
+  ulong t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < CONNECT_TIMEOUT_MS) {
     delay(500);
     Serial.print('.');
   }
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.println("\nFailed! Restarting in 3s...");
-    delay(3000);
-    ESP.restart();
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Connection failed → starting AP setup portal");
+    startAPMode();
+    return;
   }
-  Serial.printf("\nConnected!  http://%s\n", WiFi.localIP().toString().c_str());
 
-  if (MDNS.begin(HOSTNAME))
-    Serial.printf("mDNS ready: http://%s.local\n", HOSTNAME);
-
-  httpSrv.on("/", handleRoot);
-  httpSrv.on("/manifest.json", handleManifest);
-  httpSrv.on("/icon.svg", handleIcon);
-  httpSrv.on("/stop", handleHttpStop);
-  httpSrv.begin();
-
-  wsSrv.begin();
-  wsSrv.onEvent(onWsEvent);
-
-  g_lastAct = millis();
-  Serial.println("Ready!");
+  startNormalMode();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -596,6 +1088,14 @@ void setup()
 
 void loop()
 {
+  // ── AP mode: only serve the config portal ─────────────────
+  if (g_apMode) {
+    dnsServer.processNextRequest();
+    httpSrv.handleClient();
+    return;
+  }
+
+  // ── Normal mode ────────────────────────────────────────────
   static ulong wifiCheck = 0;
   ulong now = millis();
 
@@ -614,13 +1114,23 @@ void loop()
   wsSrv.loop();
   now = millis();
 
-  // Safety watchdog: stop motor if no client active for WATCHDOG_MS.
-  // PWA sends heartbeat every 15 s, so this only fires when every
-  // device has closed the app or lost WiFi.
-  if (g_dir != MSTOP && (now - g_lastAct > (ulong)WATCHDOG_MS))
+  // Run-timer: stop motor when the user-set duration elapses.
+  // Motor keeps running after phone disconnects until timer fires.
+  if (g_swinging && g_timerEnd != 0 && now >= g_timerEnd)
   {
-    Serial.println("[SAFETY] Watchdog — no clients — stopping motor");
+    Serial.println("[Timer] Duration elapsed — stopping motor");
     hardStop();
+    broadcast();
+  }
+  // Kick-start: drop from boost PWM to run speed when pulse window ends.
+  if (g_kickEnd != 0 && now >= g_kickEnd)
+  {
+    g_kickEnd = 0;
+    if (g_swinging)
+    {
+      applyMotor(MFWD, g_swingSpd);
+      Serial.printf("[Kick] done — running at %d%%\n", g_swingSpd);
+    }
   }
   // No swing state machine needed: motor just keeps running in FWD.
   // The crank mechanism converts rotation to back-and-forth swing.

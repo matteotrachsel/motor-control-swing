@@ -171,17 +171,19 @@ String stateJSON()
   int timerSec = -1;
   if (g_timerEnd != 0 && g_swinging)
     timerSec = (g_timerEnd > now2) ? (int)((g_timerEnd - now2) / 1000) : 0;
-  char buf[280];
+  char buf[300];
   snprintf(buf, sizeof(buf),
            "{\"swing\":%s,\"speed\":%d,\"dir\":\"%s\","
            "\"swingSpd\":%d,\"clients\":%d,"
            "\"timerMins\":%d,\"timerSec\":%d,"
-           "\"kickPct\":%d,\"kickMs\":%d}",
+           "\"kickPct\":%d,\"kickMs\":%d,"
+           "\"fw\":%d}",
            g_swinging ? "true" : "false",
            g_spd, dirStr(g_dir),
            g_swingSpd, g_clients,
            g_timerMins, timerSec,
-           g_kickPct, g_kickMs);
+           g_kickPct, g_kickMs,
+           FW_VERSION);
   return String(buf);
 }
 
@@ -533,7 +535,10 @@ details.man[open] summary::before{transform:rotate(90deg)}
 </div>
 
 <div class="hdr">
-  <span class="hdr-t">Baby Swing</span>
+  <div style="display:flex;flex-direction:column;gap:.15rem">
+    <span class="hdr-t">Baby Swing</span>
+    <span id="fv" style="font-size:.6rem;color:var(--dim);letter-spacing:.05em"></span>
+  </div>
   <div class="conn">
     <div class="dot" id="dot"></div>
     <span id="ct">Connecting&hellip;</span>
@@ -711,6 +716,7 @@ function render(s){
   document.getElementById('dot').className='dot ok';
   document.getElementById('ct').textContent=
     s.clients+' device'+(s.clients!==1?'s':'')+' connected';
+  if(s.fw) document.getElementById('fv').textContent='v'+s.fw;
 }
 
 /* ── Timer ── */

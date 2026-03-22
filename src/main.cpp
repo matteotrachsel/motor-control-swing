@@ -967,7 +967,6 @@ void checkAndApplyOTA()
   WiFiClientSecure dlClient;
   dlClient.setInsecure();
 
-  httpUpdate.setLedPin(LED_BUILTIN, LOW); // blink built-in LED during flash
   httpUpdate.rebootOnUpdate(true);        // auto-reboot on success
 
   t_httpUpdate_return ret = httpUpdate.update(dlClient, GITHUB_BIN_URL);

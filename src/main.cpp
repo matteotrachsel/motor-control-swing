@@ -38,16 +38,16 @@
 
 // ─── Network config ───────────────────────────────────────────
 // WiFi credentials are stored in NVS (set via AP setup portal).
-const char *HOSTNAME = "babyswing"; // → http://babyswing.local
-const char *AP_SSID  = "BabySwing-Setup"; // AP mode SSID (open)
+const char *HOSTNAME = "babyswing";      // → http://babyswing.local
+const char *AP_SSID = "BabySwing-Setup"; // AP mode SSID (open)
 // ─────────────────────────────────────────────────────────────
 
 // ─── Firmware version & OTA URLs ─────────────────────────────
 // Increment FW_VERSION each release. Commit version.txt with the
 // same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
-const int   FW_VERSION     = 22;
-const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/master/version.txt";
+const int FW_VERSION = 23;
+const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────
 const char *OTA_USER = "admin";
@@ -65,7 +65,7 @@ const int PWM_FREQ = 5000;
 const int PWM_BITS = 8; // 0–255
 
 // ─── Safety limits ───────────────────────────────────────────
-const int MAX_SPEED_PCT = 80;   // hard cap — never exceeded
+const int MAX_SPEED_PCT = 80; // hard cap — never exceeded
 
 // ─── Motor state ─────────────────────────────────────────────
 enum MotorDir
@@ -88,19 +88,19 @@ int g_clients = 0;
 ulong g_lastAct = 0;
 
 // ─── Run timer ───────────────────────────────────────────────
-int  g_timerMins = 0;  // 0 = no timer; >0 = run this many minutes then stop
-ulong g_timerEnd  = 0; // millis() when timer fires; 0 = no active timer
+int g_timerMins = 0;  // 0 = no timer; >0 = run this many minutes then stop
+ulong g_timerEnd = 0; // millis() when timer fires; 0 = no active timer
 
 // ─── Kick-start (start boost) ─────────────────────────
-int  g_kickPct = 0;    // boost % — 0 = off; typical: 60, 80, 100
-int  g_kickMs  = 400;  // boost duration ms — typical: 200, 400, 600, 1000
-ulong g_kickEnd = 0;   // millis() when kick pulse ends; 0 = not kicking
+int g_kickPct = 0;   // boost % — 0 = off; typical: 60, 80, 100
+int g_kickMs = 400;  // boost duration ms — typical: 200, 400, 600, 1000
+ulong g_kickEnd = 0; // millis() when kick pulse ends; 0 = not kicking
 
-WebServer       httpSrv(80);
+WebServer httpSrv(80);
 WebSocketsServer wsSrv(81);
-Preferences     prefs;
-DNSServer       dnsServer;
-bool            g_apMode = false; // true = running WiFi config portal
+Preferences prefs;
+DNSServer dnsServer;
+bool g_apMode = false; // true = running WiFi config portal
 
 // ════════════════════════════════════════════════════════════
 //  MOTOR
@@ -140,9 +140,21 @@ void applyMotorRaw(MotorDir dir, int pct)
   pct = constrain(pct, 0, 100);
   g_dir = dir;
   g_spd = (dir == MSTOP) ? 0 : pct;
-  if (dir == MFWD)      { digitalWrite(PIN_IN1, HIGH); digitalWrite(PIN_IN2, LOW); }
-  else if (dir == MREV) { digitalWrite(PIN_IN1, LOW);  digitalWrite(PIN_IN2, HIGH); }
-  else                  { digitalWrite(PIN_IN1, LOW);  digitalWrite(PIN_IN2, LOW); }
+  if (dir == MFWD)
+  {
+    digitalWrite(PIN_IN1, HIGH);
+    digitalWrite(PIN_IN2, LOW);
+  }
+  else if (dir == MREV)
+  {
+    digitalWrite(PIN_IN1, LOW);
+    digitalWrite(PIN_IN2, HIGH);
+  }
+  else
+  {
+    digitalWrite(PIN_IN1, LOW);
+    digitalWrite(PIN_IN2, LOW);
+  }
   ledcWrite(PWM_CH, (dir == MSTOP) ? 0 : map(pct, 0, 100, 0, 255));
   Serial.printf("[Kick] RAW FWD %d%%\n", pct);
 }
@@ -150,8 +162,8 @@ void applyMotorRaw(MotorDir dir, int pct)
 void hardStop()
 {
   g_swinging = false;
-  g_timerEnd  = 0;
-  g_kickEnd   = 0;
+  g_timerEnd = 0;
+  g_kickEnd = 0;
   applyMotor(MSTOP, 0);
 }
 
@@ -196,10 +208,10 @@ void broadcast()
 void saveSettings()
 {
   prefs.begin("swing", false);
-  prefs.putInt("swingSpd",  g_swingSpd);
+  prefs.putInt("swingSpd", g_swingSpd);
   prefs.putInt("timerMins", g_timerMins);
-  prefs.putInt("kickPct",   g_kickPct);
-  prefs.putInt("kickMs",    g_kickMs);
+  prefs.putInt("kickPct", g_kickPct);
+  prefs.putInt("kickMs", g_kickMs);
   prefs.end();
   Serial.println("[NVS] settings saved");
 }
@@ -238,12 +250,17 @@ static String jsonEsc(const String &s)
 {
   String r;
   r.reserve(s.length());
-  for (size_t i = 0; i < s.length(); i++) {
+  for (size_t i = 0; i < s.length(); i++)
+  {
     char c = s.charAt(i);
-    if      (c == '"')  r += "\\\"";
-    else if (c == '\\') r += "\\\\";
-    else if (c < 0x20)  r += ' ';
-    else                r += c;
+    if (c == '"')
+      r += "\\\"";
+    else if (c == '\\')
+      r += "\\\\";
+    else if (c < 0x20)
+      r += ' ';
+    else
+      r += c;
   }
   return r;
 }
@@ -359,7 +376,8 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     if (s.length())
     {
       g_swingSpd = constrain(s.toInt(), 5, MAX_SPEED_PCT);
-      if (g_swinging) applyMotor(MFWD, g_swingSpd);
+      if (g_swinging)
+        applyMotor(MFWD, g_swingSpd);
       saveSettings();
       broadcast();
     }
@@ -390,9 +408,11 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   else if (cmd == "set_kick")
   {
     String kPct = jval(p, "pct");
-    String kMs  = jval(p, "ms");
-    if (kPct.length()) g_kickPct = constrain(kPct.toInt(), 0, 100);
-    if (kMs.length())  g_kickMs  = constrain(kMs.toInt(), 50, 2000);
+    String kMs = jval(p, "ms");
+    if (kPct.length())
+      g_kickPct = constrain(kPct.toInt(), 0, 100);
+    if (kMs.length())
+      g_kickMs = constrain(kMs.toInt(), 50, 2000);
     saveSettings();
     broadcast();
     Serial.printf("[Kick] set pct=%d  ms=%d\n", g_kickPct, g_kickMs);
@@ -946,7 +966,8 @@ void checkAndApplyOTA()
   int code = http.GET();
 
   Serial.printf("[OTA] HTTP response: %d\n", code);
-  if (code != 200) {
+  if (code != 200)
+  {
     Serial.printf("[OTA] Version check failed (HTTP %d) — skipping\n", code);
     Serial.printf("[OTA] Error string: %s\n", http.errorToString(code).c_str());
     http.end();
@@ -960,7 +981,8 @@ void checkAndApplyOTA()
 
   Serial.printf("[OTA] Local v%d  Remote v%d\n", FW_VERSION, remoteVer);
 
-  if (remoteVer <= FW_VERSION) {
+  if (remoteVer <= FW_VERSION)
+  {
     Serial.println("[OTA] Already up to date");
     return;
   }
@@ -979,7 +1001,8 @@ void checkAndApplyOTA()
 
   int dlCode = dlHttp.GET();
   Serial.printf("[OTA] Binary HTTP: %d\n", dlCode);
-  if (dlCode != 200) {
+  if (dlCode != 200)
+  {
     Serial.printf("[OTA] Download failed (HTTP %d) — skipping\n", dlCode);
     dlHttp.end();
     return;
@@ -988,25 +1011,29 @@ void checkAndApplyOTA()
   int binSize = dlHttp.getSize();
   Serial.printf("[OTA] Binary size: %d bytes\n", binSize);
 
-  if (!Update.begin(binSize > 0 ? binSize : UPDATE_SIZE_UNKNOWN)) {
+  if (!Update.begin(binSize > 0 ? binSize : UPDATE_SIZE_UNKNOWN))
+  {
     Serial.printf("[OTA] Update.begin failed: %s\n", Update.errorString());
     dlHttp.end();
     return;
   }
 
-  WiFiClient* stream = dlHttp.getStreamPtr();
-  uint8_t* buf = (uint8_t*)malloc(4096);
-  if (!buf) {
+  WiFiClient *stream = dlHttp.getStreamPtr();
+  uint8_t *buf = (uint8_t *)malloc(4096);
+  if (!buf)
+  {
     Serial.println("[OTA] malloc failed — aborting");
     dlHttp.end();
     return;
   }
   int written = 0;
 
-  while (written < binSize) {
+  while (written < binSize)
+  {
     int toRead = min(4096, binSize - written);
     int got = stream->readBytes(buf, toRead); // blocks up to dlClient timeout
-    if (got <= 0) {
+    if (got <= 0)
+    {
       Serial.printf("[OTA] Stream ended early at %d bytes\n", written);
       break;
     }
@@ -1020,10 +1047,13 @@ void checkAndApplyOTA()
   dlHttp.end();
   Serial.printf("[OTA] Written %d bytes total\n", written);
 
-  if (Update.end(true)) {
+  if (Update.end(true))
+  {
     Serial.println("[OTA] Flash OK — rebooting");
     ESP.restart();
-  } else {
+  }
+  else
+  {
     Serial.printf("[OTA] Flash failed: %s\n", Update.errorString());
   }
   // On failure: continue with existing firmware — swing UI will start normally
@@ -1134,7 +1164,8 @@ function doUpload(){
 
 void handleOTAPage()
 {
-  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS))
+  {
     return httpSrv.requestAuthentication();
   }
   // Inject current firmware version into the HTML
@@ -1145,14 +1176,18 @@ void handleOTAPage()
 
 void handleOTAUploadDone()
 {
-  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS))
+  {
     return httpSrv.requestAuthentication();
   }
-  if (Update.hasError()) {
+  if (Update.hasError())
+  {
     String err = "FAIL: " + String(Update.errorString());
     httpSrv.send(500, "text/plain", err);
     Serial.printf("[OTA] Manual upload failed: %s\n", Update.errorString());
-  } else {
+  }
+  else
+  {
     httpSrv.send(200, "text/plain", "OK");
     Serial.println("[OTA] Manual upload complete — rebooting");
     delay(500);
@@ -1162,24 +1197,35 @@ void handleOTAUploadDone()
 
 void handleOTAUploadData()
 {
-  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS))
+  {
     return httpSrv.requestAuthentication();
   }
   HTTPUpload &upload = httpSrv.upload();
-  if (upload.status == UPLOAD_FILE_START) {
+  if (upload.status == UPLOAD_FILE_START)
+  {
     Serial.printf("[OTA] Manual upload start: %s\n", upload.filename.c_str());
     hardStop(); // stop motor before touching flash
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN))
+    {
       Update.printError(Serial);
     }
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+  }
+  else if (upload.status == UPLOAD_FILE_WRITE)
+  {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+    {
       Update.printError(Serial);
     }
-  } else if (upload.status == UPLOAD_FILE_END) {
-    if (Update.end(true)) {
+  }
+  else if (upload.status == UPLOAD_FILE_END)
+  {
+    if (Update.end(true))
+    {
       Serial.printf("[OTA] Manual upload done: %u bytes\n", upload.totalSize);
-    } else {
+    }
+    else
+    {
       Update.printError(Serial);
     }
   }
@@ -1187,29 +1233,30 @@ void handleOTAUploadData()
 
 void handleOTAGithub()
 {
-  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS))
+  {
     return httpSrv.requestAuthentication();
   }
   // Send page first — if update found the device reboots, if not the JS redirects back.
   String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<meta name='theme-color' content='#00d4aa'>"
-    "<title>Baby Swing – OTA Check</title>"
-    "<style>*{margin:0;padding:0;box-sizing:border-box}"
-    "body{background:#0a0a0f;color:#e0e0e8;font-family:system-ui,sans-serif;"
-    "display:flex;flex-direction:column;align-items:center;justify-content:center;"
-    "min-height:100vh;gap:1rem;padding:2rem}"
-    "p{font-size:.9rem;color:#6b6b80;text-align:center}"
-    ".spin{width:36px;height:36px;border:3px solid #1e1e2a;"
-    "border-top-color:#00d4aa;border-radius:50%;"
-    "animation:spin 1s linear infinite}"
-    "@keyframes spin{to{transform:rotate(360deg)}}"
-    "</style></head><body>"
-    "<div class='spin'></div>"
-    "<p>Checking GitHub for firmware update&hellip;<br>"
-    "Device will reboot automatically if a newer version is found.</p>"
-    "<script>setTimeout(function(){window.location='/update';},30000);</script>"
-    "</body></html>");
+                  "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                  "<meta name='theme-color' content='#00d4aa'>"
+                  "<title>Baby Swing – OTA Check</title>"
+                  "<style>*{margin:0;padding:0;box-sizing:border-box}"
+                  "body{background:#0a0a0f;color:#e0e0e8;font-family:system-ui,sans-serif;"
+                  "display:flex;flex-direction:column;align-items:center;justify-content:center;"
+                  "min-height:100vh;gap:1rem;padding:2rem}"
+                  "p{font-size:.9rem;color:#6b6b80;text-align:center}"
+                  ".spin{width:36px;height:36px;border:3px solid #1e1e2a;"
+                  "border-top-color:#00d4aa;border-radius:50%;"
+                  "animation:spin 1s linear infinite}"
+                  "@keyframes spin{to{transform:rotate(360deg)}}"
+                  "</style></head><body>"
+                  "<div class='spin'></div>"
+                  "<p>Checking GitHub for firmware update&hellip;<br>"
+                  "Device will reboot automatically if a newer version is found.</p>"
+                  "<script>setTimeout(function(){window.location='/update';},30000);</script>"
+                  "</body></html>");
   httpSrv.send(200, "text/html; charset=utf-8", html);
   delay(100); // ensure response is flushed before blocking download
   checkAndApplyOTA();
@@ -1228,16 +1275,16 @@ void handleResetWifi()
 {
   clearWifiCreds();
   httpSrv.send(200, "text/html; charset=utf-8",
-    "<html><head><meta charset='UTF-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<meta name='theme-color' content='#00d4aa'>"
-    "<style>body{background:#0a0a0f;color:#e0e0e8;"
-    "font-family:system-ui,sans-serif;text-align:center;padding:2rem}"
-    "h2{color:#00d4aa}p{margin-top:1rem;color:#6b6b80;font-size:.85rem}</style></head>"
-    "<body><h2>WiFi Reset</h2>"
-    "<p>Credentials cleared. Device is restarting into setup mode.</p>"
-    "<p>Connect to WiFi <b>BabySwing-Setup</b> to reconfigure.</p>"
-    "</body></html>");
+               "<html><head><meta charset='UTF-8'>"
+               "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+               "<meta name='theme-color' content='#00d4aa'>"
+               "<style>body{background:#0a0a0f;color:#e0e0e8;"
+               "font-family:system-ui,sans-serif;text-align:center;padding:2rem}"
+               "h2{color:#00d4aa}p{margin-top:1rem;color:#6b6b80;font-size:.85rem}</style></head>"
+               "<body><h2>WiFi Reset</h2>"
+               "<p>Credentials cleared. Device is restarting into setup mode.</p>"
+               "<p>Connect to WiFi <b>BabySwing-Setup</b> to reconfigure.</p>"
+               "</body></html>");
   delay(1500);
   ESP.restart();
 }
@@ -1255,11 +1302,15 @@ void handleAPScan()
   WiFi.mode(WIFI_AP_STA); // need STA side active to scan
   int n = WiFi.scanNetworks(false, false);
   String json = "[";
-  for (int i = 0; i < n; i++) {
-    if (i) json += ",";
+  for (int i = 0; i < n; i++)
+  {
+    if (i)
+      json += ",";
     json += "{\"ssid\":\"" + jsonEsc(WiFi.SSID(i)) + "\","
-            "\"rssi\":"   + WiFi.RSSI(i) + ","
-            "\"secure\":"+ (WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
+                                                     "\"rssi\":" +
+            WiFi.RSSI(i) + ","
+                           "\"secure\":" +
+            (WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") + "}";
   }
   json += "]";
   WiFi.scanDelete();
@@ -1273,7 +1324,8 @@ void handleAPSave()
   String pass = httpSrv.arg("pass");
   ssid.trim();
 
-  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 64) {
+  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 64)
+  {
     httpSrv.send(400, "text/plain", "Invalid input");
     return;
   }
@@ -1303,14 +1355,14 @@ void startAPMode()
   dnsServer.start(53, "*", WiFi.softAPIP());
 
   // Register AP routes
-  httpSrv.on("/",     HTTP_GET,  handleAPRoot);
-  httpSrv.on("/scan", HTTP_GET,  handleAPScan);
+  httpSrv.on("/", HTTP_GET, handleAPRoot);
+  httpSrv.on("/scan", HTTP_GET, handleAPScan);
   httpSrv.on("/save", HTTP_POST, handleAPSave);
   // Catch-all: redirect to setup page (makes captive portal work on iOS/Android)
-  httpSrv.onNotFound([]() {
+  httpSrv.onNotFound([]()
+                     {
     httpSrv.sendHeader("Location", "http://192.168.4.1/");
-    httpSrv.send(302, "text/plain", "");
-  });
+    httpSrv.send(302, "text/plain", ""); });
   httpSrv.begin();
 
   Serial.println("[AP] Started portal: BabySwing-Setup");
@@ -1326,14 +1378,14 @@ void startNormalMode()
   if (MDNS.begin(HOSTNAME))
     Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
 
-  httpSrv.on("/",              handleRoot);
+  httpSrv.on("/", handleRoot);
   httpSrv.on("/manifest.json", handleManifest);
-  httpSrv.on("/icon.svg",      handleIcon);
-  httpSrv.on("/stop",          handleHttpStop);
-  httpSrv.on("/reset-wifi",    handleResetWifi);
-  httpSrv.on("/update",      HTTP_GET,  handleOTAPage);
-  httpSrv.on("/update",      HTTP_POST, handleOTAUploadDone, handleOTAUploadData);
-  httpSrv.on("/ota-github",  HTTP_GET,  handleOTAGithub);
+  httpSrv.on("/icon.svg", handleIcon);
+  httpSrv.on("/stop", handleHttpStop);
+  httpSrv.on("/reset-wifi", handleResetWifi);
+  httpSrv.on("/update", HTTP_GET, handleOTAPage);
+  httpSrv.on("/update", HTTP_POST, handleOTAUploadDone, handleOTAUploadData);
+  httpSrv.on("/ota-github", HTTP_GET, handleOTAGithub);
   httpSrv.begin();
 
   wsSrv.begin();
@@ -1360,10 +1412,10 @@ void setup()
 
   // Load persisted swing settings from NVS
   prefs.begin("swing", true);
-  g_swingSpd  = prefs.getInt("swingSpd",  g_swingSpd);
+  g_swingSpd = prefs.getInt("swingSpd", g_swingSpd);
   g_timerMins = prefs.getInt("timerMins", g_timerMins);
-  g_kickPct   = prefs.getInt("kickPct",   g_kickPct);
-  g_kickMs    = prefs.getInt("kickMs",    g_kickMs);
+  g_kickPct = prefs.getInt("kickPct", g_kickPct);
+  g_kickMs = prefs.getInt("kickMs", g_kickMs);
   prefs.end();
   Serial.printf("[NVS] swingSpd=%d  timerMins=%d  kickPct=%d  kickMs=%d\n",
                 g_swingSpd, g_timerMins, g_kickPct, g_kickMs);
@@ -1372,7 +1424,8 @@ void setup()
   String ssid, pass;
   bool hasCreds = loadWifiCreds(ssid, pass);
 
-  if (!hasCreds) {
+  if (!hasCreds)
+  {
     Serial.println("[WiFi] No credentials stored → starting AP setup portal");
     startAPMode();
     return;
@@ -1386,13 +1439,15 @@ void setup()
 
   const int CONNECT_TIMEOUT_MS = 15000; // 15 s
   ulong t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < CONNECT_TIMEOUT_MS) {
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < CONNECT_TIMEOUT_MS)
+  {
     delay(500);
     Serial.print('.');
   }
   Serial.println();
 
-  if (WiFi.status() != WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED)
+  {
     Serial.println("[WiFi] Connection failed → starting AP setup portal");
     startAPMode();
     return;
@@ -1408,7 +1463,8 @@ void setup()
 void loop()
 {
   // ── AP mode: only serve the config portal ─────────────────
-  if (g_apMode) {
+  if (g_apMode)
+  {
     dnsServer.processNextRequest();
     httpSrv.handleClient();
     return;

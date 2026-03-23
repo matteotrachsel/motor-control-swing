@@ -44,10 +44,10 @@ const char *AP_SSID  = "BabySwing-Setup"; // AP mode SSID (open)
 
 // ─── Firmware version & OTA URLs ─────────────────────────────
 // Increment FW_VERSION each release. Commit version.txt with the
-// same number to the main branch. Create a GitHub Release and
+// same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
 const int   FW_VERSION     = 22;
-const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
+const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/master/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────
 const char *OTA_USER = "admin";
@@ -933,18 +933,22 @@ void handleIcon() { httpSrv.send_P(200, "image/svg+xml", ICON_SVG); }
 void checkAndApplyOTA()
 {
   Serial.printf("[OTA] Checking for update (local v%d)…\n", FW_VERSION);
+  Serial.printf("[OTA] URL: %s\n", GITHUB_VER_URL);
 
   WiFiClientSecure verClient;
   verClient.setInsecure(); // skip cert validation — fine for home use
-  verClient.setTimeout(5);
+  verClient.setTimeout(15);
 
   HTTPClient http;
   http.begin(verClient, GITHUB_VER_URL);
-  http.setTimeout(5000);
+  http.setTimeout(15000);
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   int code = http.GET();
 
+  Serial.printf("[OTA] HTTP response: %d\n", code);
   if (code != 200) {
     Serial.printf("[OTA] Version check failed (HTTP %d) — skipping\n", code);
+    Serial.printf("[OTA] Error string: %s\n", http.errorToString(code).c_str());
     http.end();
     return;
   }
@@ -966,23 +970,61 @@ void checkAndApplyOTA()
 
   WiFiClientSecure dlClient;
   dlClient.setInsecure();
+  dlClient.setTimeout(120); // 120 s socket timeout
 
-  httpUpdate.rebootOnUpdate(true);        // auto-reboot on success
+  HTTPClient dlHttp;
+  dlHttp.begin(dlClient, GITHUB_BIN_URL);
+  dlHttp.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  dlHttp.setTimeout(30000);
 
-  t_httpUpdate_return ret = httpUpdate.update(dlClient, GITHUB_BIN_URL);
+  int dlCode = dlHttp.GET();
+  Serial.printf("[OTA] Binary HTTP: %d\n", dlCode);
+  if (dlCode != 200) {
+    Serial.printf("[OTA] Download failed (HTTP %d) — skipping\n", dlCode);
+    dlHttp.end();
+    return;
+  }
 
-  // Only reached if update FAILED (success causes immediate reboot)
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      Serial.printf("[OTA] Failed (%d): %s\n",
-                    httpUpdate.getLastError(),
-                    httpUpdate.getLastErrorString().c_str());
+  int binSize = dlHttp.getSize();
+  Serial.printf("[OTA] Binary size: %d bytes\n", binSize);
+
+  if (!Update.begin(binSize > 0 ? binSize : UPDATE_SIZE_UNKNOWN)) {
+    Serial.printf("[OTA] Update.begin failed: %s\n", Update.errorString());
+    dlHttp.end();
+    return;
+  }
+
+  WiFiClient* stream = dlHttp.getStreamPtr();
+  uint8_t* buf = (uint8_t*)malloc(4096);
+  if (!buf) {
+    Serial.println("[OTA] malloc failed — aborting");
+    dlHttp.end();
+    return;
+  }
+  int written = 0;
+
+  while (written < binSize) {
+    int toRead = min(4096, binSize - written);
+    int got = stream->readBytes(buf, toRead); // blocks up to dlClient timeout
+    if (got <= 0) {
+      Serial.printf("[OTA] Stream ended early at %d bytes\n", written);
       break;
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("[OTA] Server reports no update");
-      break;
-    default:
-      break;
+    }
+    Update.write(buf, got);
+    written += got;
+    if (written % 65536 == 0)
+      Serial.printf("[OTA] %d / %d bytes\n", written, binSize);
+  }
+
+  free(buf);
+  dlHttp.end();
+  Serial.printf("[OTA] Written %d bytes total\n", written);
+
+  if (Update.end(true)) {
+    Serial.println("[OTA] Flash OK — rebooting");
+    ESP.restart();
+  } else {
+    Serial.printf("[OTA] Flash failed: %s\n", Update.errorString());
   }
   // On failure: continue with existing firmware — swing UI will start normally
 }
@@ -1035,11 +1077,14 @@ a.back:hover{color:var(--txt)}
 </head>
 <body>
 <span class="hdr-t">Baby Swing</span>
-<span class="sub">Manual firmware update &mdash; auto-update runs on every boot</span>
+<span class="sub">Firmware update &mdash; upload a file or check GitHub for a newer version</span>
 <div class="card">
   <div class="ver">Current firmware: <b>v__VER__</b></div>
+  <button class="up-btn" onclick="window.location='/ota-github'">Check GitHub for update</button>
+</div>
+<div class="card">
   <label class="pick">
-    Select firmware file (.bin)
+    Upload firmware file (.bin)
     <input type="file" id="bin" accept=".bin">
   </label>
   <div class="bar-wrap" id="bw"><div class="bar" id="bar"></div></div>
@@ -1138,6 +1183,36 @@ void handleOTAUploadData()
       Update.printError(Serial);
     }
   }
+}
+
+void handleOTAGithub()
+{
+  if (!httpSrv.authenticate(OTA_USER, OTA_PASS)) {
+    return httpSrv.requestAuthentication();
+  }
+  // Send page first — if update found the device reboots, if not the JS redirects back.
+  String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta name='theme-color' content='#00d4aa'>"
+    "<title>Baby Swing – OTA Check</title>"
+    "<style>*{margin:0;padding:0;box-sizing:border-box}"
+    "body{background:#0a0a0f;color:#e0e0e8;font-family:system-ui,sans-serif;"
+    "display:flex;flex-direction:column;align-items:center;justify-content:center;"
+    "min-height:100vh;gap:1rem;padding:2rem}"
+    "p{font-size:.9rem;color:#6b6b80;text-align:center}"
+    ".spin{width:36px;height:36px;border:3px solid #1e1e2a;"
+    "border-top-color:#00d4aa;border-radius:50%;"
+    "animation:spin 1s linear infinite}"
+    "@keyframes spin{to{transform:rotate(360deg)}}"
+    "</style></head><body>"
+    "<div class='spin'></div>"
+    "<p>Checking GitHub for firmware update&hellip;<br>"
+    "Device will reboot automatically if a newer version is found.</p>"
+    "<script>setTimeout(function(){window.location='/update';},30000);</script>"
+    "</body></html>");
+  httpSrv.send(200, "text/html; charset=utf-8", html);
+  delay(100); // ensure response is flushed before blocking download
+  checkAndApplyOTA();
 }
 
 void handleHttpStop()
@@ -1248,10 +1323,6 @@ void startNormalMode()
 {
   Serial.printf("[WiFi] Connected!  http://%s\n", WiFi.localIP().toString().c_str());
 
-  // Check GitHub for a newer firmware version; flash and reboot if found.
-  // On any network error the function returns immediately and boot continues.
-  checkAndApplyOTA();
-
   if (MDNS.begin(HOSTNAME))
     Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
 
@@ -1260,8 +1331,9 @@ void startNormalMode()
   httpSrv.on("/icon.svg",      handleIcon);
   httpSrv.on("/stop",          handleHttpStop);
   httpSrv.on("/reset-wifi",    handleResetWifi);
-  httpSrv.on("/update", HTTP_GET,  handleOTAPage);
-  httpSrv.on("/update", HTTP_POST, handleOTAUploadDone, handleOTAUploadData);
+  httpSrv.on("/update",      HTTP_GET,  handleOTAPage);
+  httpSrv.on("/update",      HTTP_POST, handleOTAUploadDone, handleOTAUploadData);
+  httpSrv.on("/ota-github",  HTTP_GET,  handleOTAGithub);
   httpSrv.begin();
 
   wsSrv.begin();

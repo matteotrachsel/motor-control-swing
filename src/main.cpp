@@ -46,7 +46,7 @@ const char *AP_SSID = "BabySwing-Setup"; // AP mode SSID (open)
 // Increment FW_VERSION each release. Commit version.txt with the
 // same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
-const int FW_VERSION = 26;
+const int FW_VERSION = 29;
 const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────

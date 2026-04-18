@@ -428,368 +428,535 @@ const char HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<meta name="theme-color" content="#00d4aa">
+<meta name="theme-color" content="#F2EEE6" id="tmeta">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Baby Swing">
+<meta name="apple-mobile-web-app-status-bar-style" content="default" id="astat">
+<meta name="apple-mobile-web-app-title" content="RockBox">
 <link rel="manifest" href="/manifest.json">
-<title>Baby Swing</title>
+<title>RockBox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
-      --acc:#00d4aa;--rev:#ffaa00;--red:#ff4466}
-html,body{height:100%;background:var(--bg);color:var(--txt);
-  font-family:system-ui,-apple-system,sans-serif;overscroll-behavior:none}
-body{display:flex;flex-direction:column;align-items:center;
-  padding:1.2rem 1rem 2rem;max-width:420px;margin:0 auto;gap:1.1rem}
-
-/* Install banner */
-.install{width:100%;background:var(--srf);border:1px solid var(--bdr);
-  border-radius:10px;padding:.7rem 1rem;display:flex;align-items:center;
-  justify-content:space-between;gap:.8rem;font-size:.72rem;color:var(--dim)}
-.install b{color:var(--txt);font-size:.75rem}
-.inst-btn{padding:.4rem .8rem;border:1px solid var(--acc);border-radius:6px;
-  background:#00d4aa14;color:var(--acc);font-size:.68rem;font-weight:700;
-  cursor:pointer;white-space:nowrap;letter-spacing:.06em;
-  -webkit-tap-highlight-color:transparent}
-.install.hidden{display:none}
-
-/* Header */
-.hdr{width:100%;display:flex;align-items:center;justify-content:space-between}
-.hdr-t{font-size:1rem;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--acc);font-weight:700}
-.conn{display:flex;align-items:center;gap:.35rem;font-size:.68rem;color:var(--dim)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--red);
-  transition:background .4s,box-shadow .4s}
-.dot.ok{background:var(--acc);box-shadow:0 0 6px var(--acc)}
-
-/* Swing button */
-.swrap{display:flex;justify-content:center}
-.sbtn{width:200px;height:200px;border-radius:50%;border:3px solid var(--bdr);
-  background:var(--srf);display:flex;flex-direction:column;align-items:center;
-  justify-content:center;cursor:pointer;user-select:none;
-  -webkit-tap-highlight-color:transparent;
-  transition:border-color .3s,box-shadow .3s;gap:.35rem}
-.sbtn:active{transform:scale(.96)}
-.sbtn.on{border-color:var(--acc);
-  animation:glow 2.5s ease-in-out infinite}
-@keyframes glow{
-  0%,100%{box-shadow:0 0 0 5px #00d4aa18,0 0 45px #00d4aa28}
-  50%    {box-shadow:0 0 0 9px #00d4aa10,0 0 65px #00d4aa3a}}
-.s-ico{font-size:3.2rem;line-height:1;color:var(--dim);
-  transition:color .3s}
-.s-ico.on{color:var(--acc);animation:spin 1.8s linear infinite}
-@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-.s-st{font-size:.88rem;font-weight:700;color:var(--dim);transition:color .3s}
-.s-st.on{color:var(--acc)}
-.s-lb{font-size:.6rem;text-transform:uppercase;letter-spacing:.15em;color:var(--dim)}
-
-/* Speed card */
-.card{width:100%;background:var(--srf);border:1px solid var(--bdr);
-  border-radius:12px;padding:1rem}
-.slab{display:flex;justify-content:space-between;font-size:.7rem;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
-  margin-bottom:.55rem}
-.slab b{color:var(--txt);font-weight:600;letter-spacing:0}
-input[type=range]{-webkit-appearance:none;width:100%;height:5px;
-  border-radius:3px;background:var(--bdr);outline:none}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;
-  height:24px;border-radius:50%;background:var(--acc);cursor:pointer;
-  box-shadow:0 0 8px #00d4aa40}
-input[type=range]:disabled{opacity:.35;pointer-events:none}
-
-/* Manual controls */
-details.man{width:100%}
-details.man summary{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;
-  color:var(--dim);cursor:pointer;padding:.5rem 0;list-style:none;
-  display:flex;align-items:center;gap:.5rem;
-  -webkit-tap-highlight-color:transparent}
-details.man summary::-webkit-details-marker{display:none}
-details.man summary::before{content:"\25B6";font-size:.5rem;
-  transition:transform .2s;display:inline-block}
-details.man[open] summary::before{transform:rotate(90deg)}
-.mrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.7rem;margin-top:.8rem}
-.mb{font-size:.7rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-  padding:.85rem .3rem;border:1px solid var(--bdr);border-radius:8px;
-  background:var(--srf);color:var(--txt);cursor:pointer;
-  -webkit-tap-highlight-color:transparent;transition:all .15s}
-.mb:active{transform:scale(.95)}
-.mb.af{border-color:var(--acc);background:#00d4aa12;color:var(--acc)}
-.mb.ar{border-color:var(--rev);background:#ffaa0012;color:var(--rev)}
-
-/* Emergency stop */
-.estop{width:100%;padding:1rem;border:2px solid var(--red);border-radius:10px;
-  background:#ff446610;color:var(--red);font-size:.82rem;font-weight:700;
-  letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
-  -webkit-tap-highlight-color:transparent;transition:all .15s}
-.estop:active{background:var(--red);color:#fff}
-
-/* Timer card */
-.tbtns{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.6rem}
-.tbtn{flex:1 1 calc(16.6% - .45rem);min-width:2.8rem;padding:.55rem .2rem;
-  border:1px solid var(--bdr);border-radius:7px;background:var(--srf);
-  color:var(--dim);font-size:.68rem;font-weight:600;cursor:pointer;
-  -webkit-tap-highlight-color:transparent;transition:all .15s;text-align:center}
-.tbtn:active{transform:scale(.93)}
-.tbtn.ta{border-color:var(--acc);background:#00d4aa14;color:var(--acc)}
-.tcd{margin-top:.65rem;font-size:.78rem;font-weight:600;color:var(--acc);
-  text-align:center;letter-spacing:.05em;min-height:1.1em}
-
-/* Kick-start card */
-.krow{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.5rem}
-.kbtn{flex:1 1 calc(25% - .45rem);min-width:3rem;padding:.55rem .2rem;
-  border:1px solid var(--bdr);border-radius:7px;background:var(--srf);
-  color:var(--dim);font-size:.68rem;font-weight:600;cursor:pointer;
-  -webkit-tap-highlight-color:transparent;transition:all .15s;text-align:center}
-.kbtn:active{transform:scale(.93)}
-.kbtn.ka{border-color:var(--acc);background:#00d4aa14;color:var(--acc)}
-.klbl{font-size:.6rem;color:var(--dim);margin:.5rem 0 .3rem}
+:root{--bg:#F2EEE6;--srf:#FAF8F3;--srf2:#ECE7DC;--line:#DED6C6;--ink:#2B3A34;--ink2:#5C6A63;--ink3:#8A9489;--sage:#8FA89A;--saged:#6B8A7A;--stop:#B84A3B;--stopd:#9A3A2D}
+.dk{--bg:#1C211F;--srf:#242A27;--srf2:#2E3532;--line:#3A413D;--ink:#EDE8DC;--ink2:#AAB2AD;--ink3:#7A8580;--sage:#A9C2B2;--saged:#8FA89A;--stop:#D45A4B;--stopd:#B84A3B}
+html,body{height:100%;background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;overscroll-behavior:none}
+body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height:100vh;padding-bottom:92px}
+#ib{margin:8px 16px 0;background:var(--srf);border:1px solid var(--line);border-radius:14px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:.8rem;font-size:12px;color:var(--ink2)}
+#ib.h{display:none}
+.ibtn{padding:6px 12px;border:1px solid var(--saged);border-radius:8px;background:transparent;color:var(--saged);font-size:11px;font-weight:600;cursor:pointer;font-family:'Instrument Sans',sans-serif}
+.hdr{padding:10px 16px 0}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 0 6px}
+.wm{display:flex;align-items:baseline;gap:6px}
+.wm-n{font-family:'Fraunces',serif;font-size:22px;font-weight:400;color:var(--ink);letter-spacing:-.5px}
+.wm-v{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink3);letter-spacing:1.5px;text-transform:uppercase}
+.dtag{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--srf);border:1px solid var(--line)}
+.ddot{width:6px;height:6px;border-radius:50%;background:var(--ink3);transition:background .3s}
+.ddot.on{background:var(--sage)}
+.dlbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink2);letter-spacing:.8px}
+.profs{display:flex;gap:8px;align-items:center;padding:4px 0}
+.prf{display:flex;align-items:center;gap:8px;padding:6px;border-radius:999px;background:transparent;border:1px solid transparent;cursor:pointer;transition:all .18s ease}
+.prf.act{padding:7px 12px 7px 7px;background:var(--srf);border-color:var(--line)}
+.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;letter-spacing:.5px;color:#fff}
+.pnm{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:-.1px}
+.padd{width:34px;height:34px;border-radius:50%;background:transparent;border:1px dashed var(--line);color:var(--ink3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
+.stbar{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:8px}
+.sc{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}
+.blbl{color:var(--ink3);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
+.bnm{color:var(--ink);font-family:'Fraunces',serif;font-size:14px}
+.mdot{width:6px;height:6px;border-radius:50%;background:var(--sage)}
+.mlbl{letter-spacing:1.2px;text-transform:uppercase;font-size:11px}
+.dw{padding:18px 16px 8px;display:flex;justify-content:center;position:relative}
+#dsvg{display:block;touch-action:none;user-select:none;cursor:grab}
+#dsvg:active{cursor:grabbing}
+.dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.ds{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px}
+.dv{font-family:'Fraunces',serif;font-size:80px;font-weight:300;color:var(--ink);line-height:1;letter-spacing:-2px}
+.du{font-family:'Instrument Sans',sans-serif;font-size:11px;color:var(--ink3);letter-spacing:3px;text-transform:uppercase;margin-top:6px}
+.sdb{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;background:var(--srf);border:1px solid var(--line);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.sdb.L{left:20px}.sdb.R{right:20px}
+.pw{padding:0 16px 12px;display:flex;justify-content:center}
+.pbtn{padding:7px 16px;border-radius:999px;background:var(--srf);color:var(--ink);border:1px solid var(--line);font-family:'Instrument Sans',sans-serif;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:8px}
+.pi{width:6px;height:6px;background:var(--ink2);border-radius:1px;transition:border-radius .2s,background .2s}
+.pi.on{border-radius:50%;background:var(--sage)}
+.pnls{padding:4px 16px 0}
+.slbl{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3);margin-bottom:10px;padding:0 2px}
+.pgrd{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+.ptbtn{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 10px;text-align:left;cursor:pointer;transition:all .18s ease}
+.ptbtn.on{background:var(--srf);border-color:var(--sage)}
+.ptlbl{font-family:'Fraunces',serif;font-size:15px;color:var(--ink);letter-spacing:-.2px;margin-top:8px}
+.ptdesc{font-family:'Instrument Sans',sans-serif;font-size:10px;color:var(--ink3);margin-top:2px;letter-spacing:.2px}
+.tc{margin-bottom:16px;padding:14px;background:var(--srf);border:1px solid var(--line);border-radius:14px}
+.thd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.ttl{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3)}
+#tcd2{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink3);transition:color .3s}
+#tcd2.on{color:var(--saged)}
+.trow{display:flex;gap:6px}
+.tbt{flex:1;padding:10px 0;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;font-family:'Instrument Sans',sans-serif;font-size:13px;font-weight:500;letter-spacing:.2px;cursor:pointer;transition:all .15s ease}
+.tbt.on{background:var(--ink);color:var(--srf);border-color:var(--ink)}
+.tbt.toff{flex:0.6;color:var(--ink3);font-size:12px}
+.lc{margin-bottom:16px;background:var(--srf);border:1px solid var(--line);border-radius:14px;padding:14px}
+.lrow{display:flex;align-items:center;justify-content:space-between}
+.lico{width:32px;height:32px;border-radius:10px;background:var(--srf2);display:flex;align-items:center;justify-content:center;transition:background .2s}
+.lico.on{background:var(--sage)}
+.tog{width:44px;height:26px;border-radius:999px;background:var(--srf2);border:1px solid var(--line);position:relative;cursor:pointer;padding:0;transition:all .2s ease}
+.tog.on{background:var(--sage);border-color:var(--saged)}
+.tok{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);transition:all .2s ease}
+.tog.on .tok{left:20px}
+.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+.chip{padding:5px 10px;border-radius:999px;background:transparent;color:var(--ink2);border:1px solid var(--line);font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:.2px;cursor:pointer}
+.chip.on{background:var(--ink);color:var(--srf);border-color:var(--ink)}
+.gc{padding:14px 14px 12px;background:var(--srf);border:1px solid var(--line);border-radius:14px;margin-bottom:16px}
+.ghd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.gttl{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3)}
+#gavg{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink3)}
+.gbrs{height:60px;display:flex;align-items:flex-end;gap:2px;padding:0 2px;border-bottom:1px solid var(--line)}
+.gtms{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink3);letter-spacing:.5px;margin-top:4px}
+.sess{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);letter-spacing:.8px;padding:0 4px;margin-bottom:16px}
+details.mn>summary{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3);cursor:pointer;list-style:none;padding:8px 2px;display:flex;align-items:center;gap:6px}
+details.mn>summary::-webkit-details-marker{display:none}
+details.mn>summary::before{content:"&#9654;";font-size:8px;transition:transform .2s;display:inline-block}
+details.mn[open]>summary::before{transform:rotate(90deg)}
+.kc{margin-top:8px;padding:14px;background:var(--srf);border:1px solid var(--line);border-radius:14px;margin-bottom:8px}
+.klbl{font-size:10px;color:var(--ink3);margin:8px 0 6px;letter-spacing:.5px;text-transform:uppercase;font-family:'Instrument Sans',sans-serif}
+.klbl:first-child{margin-top:0}
+.kr{display:flex;flex-wrap:wrap;gap:6px}
+.kbtn{flex:1 1 calc(25% - 6px);min-width:2.5rem;padding:10px 0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink2);font-family:'Instrument Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;text-align:center;transition:all .15s}
+.kbtn.on{border-color:var(--sage);background:var(--srf);color:var(--saged)}
+.mbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+.mbt{padding:14px 0;border:1px solid var(--line);border-radius:10px;background:var(--srf);color:var(--ink);font-family:'Instrument Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;text-align:center;transition:all .15s}
+.mbt.fw{border-color:var(--saged);color:var(--saged)}
+.mbt.rv{border-color:#C9B79C;color:#8B6F55}
+.fwrow{display:flex;justify-content:space-between;align-items:center;padding:0 4px;margin-bottom:12px}
+a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
+.thmbtn{padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink3);font-family:'Instrument Sans',sans-serif;font-size:11px;cursor:pointer;letter-spacing:.5px}
+.ewrap{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;padding:12px 14px 34px;background:linear-gradient(to top,var(--bg) 60%,transparent);pointer-events:none;z-index:100}
+#estop{width:100%;padding:18px 0;background:var(--stop);color:#fff;border:none;border-radius:14px;cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;gap:12px;font-family:'Instrument Sans',sans-serif;transition:all .15s ease;box-shadow:0 8px 24px rgba(180,74,59,.25),inset 0 1px 0 rgba(255,255,255,.15)}
+#estop.cf{background:var(--stopd)}
+.eico{width:24px;height:24px;border-radius:6px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center}
+.elbl{font-size:14px;font-weight:600;letter-spacing:3px;text-transform:uppercase}
 </style>
 </head>
 <body>
 
-<!-- Android/iOS install banner -->
-<div class="install" id="ibanner">
-  <div><b>Install app</b><br>Use offline, no browser bar</div>
-  <button class="inst-btn" id="ibtn" onclick="installApp()">Install</button>
+<div id="ib" class="h">
+  <div><strong style="color:var(--ink);font-size:13px">Install RockBox</strong><br>Add to home screen</div>
+  <button class="ibtn" onclick="installApp()">Install</button>
 </div>
 
 <div class="hdr">
-  <div style="display:flex;flex-direction:column;gap:.15rem">
-    <span class="hdr-t">Baby Swing</span>
-    <span id="fv" style="font-size:.6rem;color:var(--dim);letter-spacing:.05em"></span>
-  </div>
-  <div class="conn">
-    <div class="dot" id="dot"></div>
-    <span id="ct">Connecting&hellip;</span>
-  </div>
-</div>
-
-<div class="swrap">
-  <div class="sbtn" id="sb" onclick="toggleSwing()">
-    <div class="s-ico" id="si">&#9711;</div>
-    <div class="s-st"  id="ss">Tap to swing</div>
-    <div class="s-lb"  id="sl">stopped</div>
-  </div>
-</div>
-
-<div class="card">
-  <div class="slab">Speed&nbsp;<b id="sv">40</b>%</div>
-  <input type="range" id="sp" min="10" max="100" value="40"
-    oninput="document.getElementById('sv').textContent=this.value;spdInput(this.value)">
-</div>
-
-<div class="card">
-  <div class="slab">Timer&nbsp;<b id="tv">Off</b></div>
-  <div class="tbtns">
-    <button class="tbtn" id="tb0"  onclick="setTimer(0)">Off</button>
-    <button class="tbtn" id="tb15" onclick="setTimer(15)">15m</button>
-    <button class="tbtn" id="tb30" onclick="setTimer(30)">30m</button>
-    <button class="tbtn" id="tb45" onclick="setTimer(45)">45m</button>
-    <button class="tbtn" id="tb60" onclick="setTimer(60)">1h</button>
-    <button class="tbtn" id="tb90" onclick="setTimer(90)">90m</button>
-  </div>
-  <div class="tcd" id="tcd"></div>
-</div>
-
-<details class="man">
-  <summary>Manual control (setup / maintenance)</summary>
-  <div class="card" style="margin-top:.8rem">
-    <div class="slab">Start boost&nbsp;<b id="kv">Off</b></div>
-    <div class="klbl">Boost level</div>
-    <div class="krow">
-      <button class="kbtn" id="kb0"   onclick="setKick(0,null)">Off</button>
-      <button class="kbtn" id="kb60"  onclick="setKick(60,null)">60%</button>
-      <button class="kbtn" id="kb80"  onclick="setKick(80,null)">80%</button>
-      <button class="kbtn" id="kb100" onclick="setKick(100,null)">100%</button>
+  <div class="topbar">
+    <div class="wm">
+      <span class="wm-n">RockBox</span>
+      <span class="wm-v" id="vbadge">v2</span>
     </div>
-    <div class="klbl">Duration</div>
-    <div class="krow">
-      <button class="kbtn" id="kd200"  onclick="setKick(null,200)">200ms</button>
-      <button class="kbtn" id="kd400"  onclick="setKick(null,400)">400ms</button>
-      <button class="kbtn" id="kd600"  onclick="setKick(null,600)">600ms</button>
-      <button class="kbtn" id="kd1000" onclick="setKick(null,1000)">1s</button>
+    <div class="dtag">
+      <span class="ddot" id="ddot"></span>
+      <span class="dlbl">ESP32&#183;LIVING</span>
     </div>
   </div>
-  <div class="mrow">
-    <button class="mb" id="mf" onclick="manual('forward')">&#9650; Fwd</button>
-    <button class="mb"         onclick="send({cmd:'stop'})">&#9632; Stop</button>
-    <button class="mb" id="mr" onclick="manual('reverse')">&#9660; Rev</button>
+  <div class="profs">
+    <button class="prf act" data-uid="0" onclick="switchUser(0)">
+      <div class="av" style="background:#6B8A7A">M</div>
+      <span class="pnm">Mama</span>
+    </button>
+    <button class="prf" data-uid="1" onclick="switchUser(1)">
+      <div class="av" style="background:#C9B79C">P</div>
+    </button>
+    <button class="prf" data-uid="2" onclick="switchUser(2)">
+      <div class="av" style="background:#8A9489">F</div>
+    </button>
+    <button class="padd">+</button>
   </div>
-</details>
+</div>
 
-<button class="estop" onclick="send({cmd:'stop'})">&#9899; Emergency Stop</button>
+<div class="stbar">
+  <div class="sc">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--saged)" stroke-width="1.6" stroke-linecap="round">
+      <path d="M4 10a12 12 0 0 1 16 0"/><path d="M7 13.5a7.5 7.5 0 0 1 10 0"/>
+      <path d="M10 17a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".5" fill="var(--saged)" stroke="none"/>
+    </svg>
+    <span id="wifist">Connecting</span>
+  </div>
+  <div class="sc">
+    <span class="blbl">Baby</span>
+    <span class="bnm">Ida</span>
+    <span style="color:var(--ink3)">&#183;</span>
+    <span>4 mo</span>
+  </div>
+  <div class="sc">
+    <span class="mdot"></span>
+    <span class="mlbl">Mains</span>
+  </div>
+</div>
 
-<div style="display:flex;justify-content:space-between;width:100%;padding:0 .2rem">
-  <a href="/update"     style="font-size:.6rem;color:var(--dim);text-decoration:none">Firmware update</a>
-  <a href="/reset-wifi" style="font-size:.6rem;color:var(--dim);text-decoration:none">Reset WiFi</a>
+<div class="dw">
+  <svg id="dsvg" width="240" height="240" viewBox="0 0 240 240">
+    <path id="dtrack" fill="none" stroke="var(--line)" stroke-width="2" stroke-linecap="round"/>
+    <path id="darc"  fill="none" stroke="var(--sage)" stroke-width="2" stroke-linecap="round"/>
+    <g id="dticks"></g>
+    <circle id="dknob"  r="10" fill="var(--srf)" stroke="var(--sage)" stroke-width="2"/>
+    <circle id="dknob2" r="3"  fill="var(--saged)"/>
+  </svg>
+  <div class="dc">
+    <div class="ds" id="dstate">Paused</div>
+    <div class="dv" id="dnum">4.0</div>
+    <div class="du">Level &middot; of 10</div>
+  </div>
+  <button class="sdb L" onclick="adjustDial(-0.5)">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink2)" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14"/></svg>
+  </button>
+  <button class="sdb R" onclick="adjustDial(0.5)">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink2)" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</div>
+
+<div class="pw">
+  <button class="pbtn" onclick="toggleSwing()">
+    <span class="pi" id="pi"></span>
+    <span id="pbtnlbl">Resume Rocking</span>
+  </button>
+</div>
+
+<div class="pnls">
+
+  <div class="slbl">Pattern</div>
+  <div class="pgrd">
+    <button class="ptbtn on" data-pat="wave" onclick="setPattern('wave')">
+      <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
+        <path data-stroke="1" d="M2 10 Q 8 2, 14 10 T 26 10 T 38 10" stroke="var(--saged)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="ptlbl">Wave</div><div class="ptdesc">Rising and falling</div>
+    </button>
+    <button class="ptbtn" data-pat="steady" onclick="setPattern('steady')">
+      <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
+        <path data-stroke="1" d="M2 10 L 10 5 L 14 15 L 22 5 L 26 15 L 34 5 L 38 15" stroke="var(--ink3)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="ptlbl">Steady</div><div class="ptdesc">Even tempo</div>
+    </button>
+    <button class="ptbtn" data-pat="lull" onclick="setPattern('lull')">
+      <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
+        <path data-stroke="1" d="M2 4 Q 10 4, 12 10 T 22 13 T 38 14" stroke="var(--ink3)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="ptlbl">Lull</div><div class="ptdesc">Slow decay</div>
+    </button>
+  </div>
+
+  <div class="tc">
+    <div class="thd">
+      <div class="ttl">Auto-stop Timer</div>
+      <div id="tcd2">&#8212;:&#8212;</div>
+    </div>
+    <div class="trow">
+      <button class="tbt" id="tb15" onclick="setTimer(15)">15<span style="opacity:.6;margin-left:2px;font-size:11px">m</span></button>
+      <button class="tbt" id="tb30" onclick="setTimer(30)">30<span style="opacity:.6;margin-left:2px;font-size:11px">m</span></button>
+      <button class="tbt" id="tb45" onclick="setTimer(45)">45<span style="opacity:.6;margin-left:2px;font-size:11px">m</span></button>
+      <button class="tbt" id="tb60" onclick="setTimer(60)">60<span style="opacity:.6;margin-left:2px;font-size:11px">m</span></button>
+      <button class="tbt toff" id="tb0" onclick="setTimer(0)">Off</button>
+    </div>
+  </div>
+
+  <div class="lc">
+    <div class="lrow">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="lico" id="lico">
+          <svg id="lsvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round">
+            <path d="M9 18V6l11-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="16" r="2"/>
+          </svg>
+        </div>
+        <div>
+          <div style="font-family:'Fraunces',serif;font-size:15px;color:var(--ink)">Lullaby</div>
+          <div style="font-family:'Instrument Sans',sans-serif;font-size:11px;color:var(--ink3)" id="ltk">Off</div>
+        </div>
+      </div>
+      <button class="tog" id="ltog" onclick="toggleLullaby()"><div class="tok"></div></button>
+    </div>
+    <div class="chips" id="chips" style="display:none">
+      <button class="chip" data-tk="White noise" onclick="setTrack('White noise')">White noise</button>
+      <button class="chip on" data-tk="Ocean" onclick="setTrack('Ocean')">Ocean</button>
+      <button class="chip" data-tk="Forest" onclick="setTrack('Forest')">Forest</button>
+      <button class="chip" data-tk="Mozart" onclick="setTrack('Mozart')">Mozart</button>
+    </div>
+  </div>
+
+  <div class="gc">
+    <div class="ghd">
+      <div class="gttl">Motion &middot; Last 30 min</div>
+      <div id="gavg">avg 0.0</div>
+    </div>
+    <div class="gbrs" id="gbrs"></div>
+    <div class="gtms"><span>&#8211;30m</span><span>&#8211;20m</span><span>&#8211;10m</span><span>now</span></div>
+  </div>
+
+  <div class="sess">
+    <span id="sessuser">SESSION &middot; MA</span>
+    <span id="uptime">UPTIME 00:00:00</span>
+  </div>
+
+  <details class="mn" style="margin-bottom:16px">
+    <summary>Manual &middot; Setup</summary>
+    <div class="kc">
+      <div class="klbl" style="margin-top:0">Boost level</div>
+      <div class="kr">
+        <button class="kbtn" id="kb0"    onclick="setKick(0,null)">Off</button>
+        <button class="kbtn" id="kb60"   onclick="setKick(60,null)">60%</button>
+        <button class="kbtn" id="kb80"   onclick="setKick(80,null)">80%</button>
+        <button class="kbtn" id="kb100"  onclick="setKick(100,null)">100%</button>
+      </div>
+      <div class="klbl">Duration</div>
+      <div class="kr">
+        <button class="kbtn" id="kd200"  onclick="setKick(null,200)">200ms</button>
+        <button class="kbtn" id="kd400"  onclick="setKick(null,400)">400ms</button>
+        <button class="kbtn" id="kd600"  onclick="setKick(null,600)">600ms</button>
+        <button class="kbtn" id="kd1000" onclick="setKick(null,1000)">1s</button>
+      </div>
+    </div>
+    <div class="mbtns">
+      <button class="mbt fw" id="mf" onclick="manual('forward')">&#9650; Fwd</button>
+      <button class="mbt"         onclick="send({cmd:'stop'})">&#9632; Stop</button>
+      <button class="mbt rv" id="mr" onclick="manual('reverse')">&#9660; Rev</button>
+    </div>
+  </details>
+
+  <div class="fwrow">
+    <a href="/update"     class="fwlk">Firmware update</a>
+    <button class="thmbtn" onclick="toggleTheme()">&#9788; Theme</button>
+    <a href="/reset-wifi" class="fwlk">Reset WiFi</a>
+  </div>
+
+</div>
+
+<div class="ewrap">
+  <button id="estop" onclick="eStop()">
+    <div class="eico">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+    </div>
+    <span class="elbl" id="eslbl">Emergency Stop</span>
+  </button>
 </div>
 
 <script>
-var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400};
+var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400,fw:0};
+var dialVal=4.0,running=false,pattern='wave',activeUser=0;
+var soundOn=false,soundTrack='Ocean';
+var eStopPending=false,eStopTimer=null;
+var motion=[],uptimeSec=0,cdInt=null;
 var ws,rt,ht,rd=1000,deferredPrompt=null;
-var cdInt=null; // countdown interval
 
-/* ── PWA install ── */
-window.addEventListener('beforeinstallprompt',function(e){
-  e.preventDefault();
-  deferredPrompt=e;
-  // Show our install banner with native prompt support
-  document.getElementById('ibanner').classList.remove('hidden');
-  document.getElementById('ibtn').textContent='Install';
-});
-window.addEventListener('appinstalled',function(){
-  document.getElementById('ibanner').classList.add('hidden');
-  deferredPrompt=null;
-});
-function installApp(){
-  if(deferredPrompt){
-    deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(function(){deferredPrompt=null;});
-  } else {
-    // Fallback: show manual instructions
-    alert('To install:\n\nAndroid Chrome: tap \u22EE (menu) \u2192 "Add to Home screen"\n\niOS Safari: tap \u2191 (share) \u2192 "Add to Home Screen"');
+for(var _i=0;_i<60;_i++){
+  var _b=2+Math.sin(_i/8)*1.5+Math.cos(_i/5)*1.2;
+  motion.push(Math.max(0,Math.min(8,_b+(_i>40?1.8:0))));
+}
+
+var USERS=[{name:'Mama',initials:'M',color:'#6B8A7A'},{name:'Papa',initials:'P',color:'#C9B79C'},{name:'Farmor',initials:'F',color:'#8A9489'}];
+
+// Dial
+var CX=120,CY=120,R_T=98,R_O=116,SD=-220,SWEEP=260;
+function d2p(deg,r){var rad=(deg-90)*Math.PI/180;return[CX+Math.cos(rad)*r,CY+Math.sin(rad)*r];}
+function mkArc(r,a0,a1){var p0=d2p(a0,r),p1=d2p(a1,r);return 'M '+p0[0]+' '+p0[1]+' A '+r+' '+r+' 0 '+((a1-a0)>180?1:0)+' 1 '+p1[0]+' '+p1[1];}
+
+function initDial(){
+  document.getElementById('dtrack').setAttribute('d',mkArc(R_T,SD,SD+SWEEP));
+  var g=document.getElementById('dticks');g.innerHTML='';
+  for(var i=0;i<=10;i++){
+    var a=SD+(i/10)*SWEEP,maj=(i%2===0);
+    var inn=d2p(a,R_O-2),out=d2p(a,R_O-(maj?12:7));
+    var ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+    ['x1','y1','x2','y2'].forEach(function(k,j){ln.setAttribute(k,[inn[0],inn[1],out[0],out[1]][j]);});
+    ln.setAttribute('stroke-width',maj?'1.4':'1');ln.setAttribute('stroke-linecap','round');
+    ln.id='tick'+i;g.appendChild(ln);
   }
-}
-// Hide banner if already running as installed PWA
-if(window.matchMedia('(display-mode: standalone)').matches||
-   window.navigator.standalone===true){
-  document.getElementById('ibanner').classList.add('hidden');
+  updateDial();
 }
 
-/* ── WebSocket ── */
+function updateDial(){
+  var angle=SD+(dialVal/10)*SWEEP;
+  var darc=document.getElementById('darc');
+  if(dialVal>0){darc.setAttribute('d',mkArc(R_T,SD,angle));darc.style.display='';}
+  else darc.style.display='none';
+  var kp=d2p(angle,R_T);
+  ['dknob','dknob2'].forEach(function(id){
+    document.getElementById(id).setAttribute('cx',kp[0]);
+    document.getElementById(id).setAttribute('cy',kp[1]);
+  });
+  for(var i=0;i<=10;i++){
+    var t=document.getElementById('tick'+i);
+    if(t)t.setAttribute('stroke',(i<=dialVal*10/10)?'var(--sage)':'var(--line)');
+  }
+  document.getElementById('dnum').textContent=dialVal.toFixed(1);
+  document.getElementById('dstate').textContent=running?'Rocking':'Paused';
+  var pi=document.getElementById('pi'),lbl=document.getElementById('pbtnlbl');
+  if(running){pi.classList.add('on');lbl.textContent='Pause Rocking';}
+  else{pi.classList.remove('on');lbl.textContent='Resume Rocking';}
+}
+
+var dragging=false,dsvg=document.getElementById('dsvg');
+function onDialPt(e){
+  var rect=dsvg.getBoundingClientRect();
+  var px=(e.touches?e.touches[0].clientX:e.clientX)-(rect.left+rect.width/2);
+  var py=(e.touches?e.touches[0].clientY:e.clientY)-(rect.top+rect.height/2);
+  var deg=Math.atan2(py,px)*180/Math.PI+90;
+  if(deg>180)deg-=360;
+  dialVal=Math.round(Math.max(0,Math.min(SWEEP,deg-SD))/SWEEP*100)/10;
+  updateDial();scheduleSpdSend();
+}
+dsvg.addEventListener('mousedown',function(e){dragging=true;onDialPt(e);});
+dsvg.addEventListener('touchstart',function(e){e.preventDefault();dragging=true;onDialPt(e);},{passive:false});
+window.addEventListener('mousemove',function(e){if(dragging)onDialPt(e);});
+window.addEventListener('mouseup',function(){dragging=false;});
+window.addEventListener('touchmove',function(e){if(dragging){e.preventDefault();onDialPt(e);}},{passive:false});
+window.addEventListener('touchend',function(){dragging=false;});
+
+function adjustDial(d){dialVal=Math.max(0,Math.min(10,parseFloat((dialVal+d).toFixed(1))));updateDial();scheduleSpdSend();}
+var spdTmr;
+function scheduleSpdSend(){clearTimeout(spdTmr);spdTmr=setTimeout(function(){if(running)send({cmd:'set_speed',speed:Math.round(dialVal*10)});},120);}
+initDial();
+
+// Profiles
+function switchUser(uid){
+  activeUser=uid;
+  document.querySelectorAll('[data-uid]').forEach(function(b){
+    var u=parseInt(b.dataset.uid),usr=USERS[u],on=u===uid;
+    b.className='prf'+(on?' act':'');
+    b.innerHTML='<div class="av" style="background:'+usr.color+'">'+usr.initials+'</div>'+(on?'<span class="pnm">'+usr.name+'</span>':'');
+    b.onclick=(function(id){return function(){switchUser(id);};})(u);
+  });
+  document.getElementById('sessuser').textContent='SESSION \u00B7 '+['MA','PA','FA'][uid];
+}
+
+// Pattern
+function setPattern(p){
+  pattern=p;
+  document.querySelectorAll('.ptbtn').forEach(function(b){
+    var on=b.dataset.pat===p;
+    b.className='ptbtn'+(on?' on':'');
+    var path=b.querySelector('[data-stroke]');
+    if(path)path.setAttribute('stroke',on?'var(--saged)':'var(--ink3)');
+  });
+}
+
+// Lullaby
+function toggleLullaby(){
+  soundOn=!soundOn;
+  document.getElementById('ltog').className='tog'+(soundOn?' on':'');
+  document.getElementById('lico').className='lico'+(soundOn?' on':'');
+  document.getElementById('lsvg').setAttribute('stroke',soundOn?'#fff':'var(--ink2)');
+  document.getElementById('chips').style.display=soundOn?'flex':'none';
+  document.getElementById('ltk').textContent=soundOn?soundTrack:'Off';
+}
+function setTrack(tk){
+  soundTrack=tk;
+  document.querySelectorAll('.chip').forEach(function(c){c.className='chip'+(c.dataset.tk===tk?' on':'');});
+  document.getElementById('ltk').textContent=tk;
+}
+
+// Motion graph
+function addMotionPt(v){motion.push(v);if(motion.length>60)motion.shift();renderGraph();}
+function renderGraph(){
+  var bars=document.getElementById('gbrs');bars.innerHTML='';
+  var sum=0,cnt=0;
+  motion.forEach(function(v,i){
+    if(v>0){sum+=v;cnt++;}
+    var b=document.createElement('div');
+    b.style.flex='1';b.style.height=Math.max(4,(v/10)*100)+'%';
+    b.style.background=v>0?'var(--sage)':'var(--line)';
+    b.style.opacity=v>0?(0.4+(i/motion.length)*0.6).toString():'0.3';
+    b.style.borderRadius='1px';bars.appendChild(b);
+  });
+  document.getElementById('gavg').textContent='avg '+(cnt>0?(sum/cnt).toFixed(1):'0.0');
+}
+renderGraph();
+
+// Timer
+function setTimer(m){send({cmd:'set_timer',minutes:m});}
+function fmtSec(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function startCountdown(secs){
+  clearInterval(cdInt);var rem=secs;
+  var el=document.getElementById('tcd2');el.classList.add('on');
+  function tick(){if(rem<=0){el.textContent='\u2014:\u2014';el.classList.remove('on');clearInterval(cdInt);return;}el.textContent=fmtSec(rem--);}
+  tick();cdInt=setInterval(tick,1000);
+}
+function stopCountdown(){clearInterval(cdInt);var el=document.getElementById('tcd2');el.textContent='\u2014:\u2014';el.classList.remove('on');}
+
+// Kick
+function setKick(pct,ms){send({cmd:'set_kick',pct:pct!==null?pct:S.kickPct,ms:ms!==null?ms:S.kickMs});}
+
+// Manual
+function manual(dir){send({cmd:'set',dir:dir,speed:Math.round(dialVal*10)});}
+
+// Swing
+function toggleSwing(){
+  if(running)send({cmd:'swing_stop'});
+  else send({cmd:'swing_start',speed:Math.max(10,Math.round(dialVal*10))});
+}
+
+// E-stop
+function eStop(){
+  if(!eStopPending){
+    eStopPending=true;
+    document.getElementById('estop').classList.add('cf');
+    document.getElementById('eslbl').textContent='Tap again to confirm';
+    eStopTimer=setTimeout(function(){eStopPending=false;document.getElementById('estop').classList.remove('cf');document.getElementById('eslbl').textContent='Emergency Stop';},2500);
+    return;
+  }
+  clearTimeout(eStopTimer);eStopPending=false;
+  document.getElementById('estop').classList.remove('cf');document.getElementById('eslbl').textContent='Emergency Stop';
+  send({cmd:'stop'});running=false;dialVal=0;updateDial();
+}
+
+// Render
+function render(s){
+  S=s;running=!!s.swing;
+  dialVal=Math.max(0,Math.min(10,Math.round(s.swingSpd)/10));
+  updateDial();
+  [0,15,30,45,60].forEach(function(v){var el=document.getElementById('tb'+v);if(el)el.className=(v===0?'tbt toff':'tbt')+(s.timerMins===v?' on':'');});
+  if(s.swing&&s.timerSec>=0)startCountdown(s.timerSec);
+  else{stopCountdown();if(s.timerMins>0)document.getElementById('tcd2').textContent=s.timerMins+':00';}
+  [0,60,80,100].forEach(function(v){var el=document.getElementById('kb'+v);if(el)el.className='kbtn'+(s.kickPct===v?' on':'');});
+  [200,400,600,1000].forEach(function(v){var el=document.getElementById('kd'+v);if(el)el.className='kbtn'+(s.kickMs===v?' on':'');});
+  document.getElementById('mf').className='mbt fw'+((!s.swing&&s.dir==='forward')?' on':'');
+  document.getElementById('mr').className='mbt rv'+((!s.swing&&s.dir==='reverse')?' on':'');
+  document.getElementById('ddot').className='ddot on';
+  document.getElementById('wifist').textContent=s.clients+' device'+(s.clients!==1?'s':'');
+  if(s.fw)document.getElementById('vbadge').textContent='v'+s.fw;
+  addMotionPt(running?dialVal:0);
+}
+
+// Uptime
+setInterval(function(){
+  uptimeSec++;
+  var h=Math.floor(uptimeSec/3600),m=Math.floor((uptimeSec%3600)/60),sc=uptimeSec%60;
+  document.getElementById('uptime').textContent='UPTIME '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
+},1000);
+
+// Theme
+var darkMode=false;
+function toggleTheme(){
+  darkMode=!darkMode;
+  document.body.classList.toggle('dk',darkMode);
+  document.getElementById('tmeta').setAttribute('content',darkMode?'#1C211F':'#F2EEE6');
+  document.getElementById('astat').setAttribute('content',darkMode?'black-translucent':'default');
+}
+
+// PWA install
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferredPrompt=e;document.getElementById('ib').classList.remove('h');});
+window.addEventListener('appinstalled',function(){document.getElementById('ib').classList.add('h');deferredPrompt=null;});
+function installApp(){
+  if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){deferredPrompt=null;});}
+  else alert('Android Chrome: tap \u22EE \u2192 "Add to Home screen"\n\niOS Safari: tap \u2191 \u2192 "Add to Home Screen"');
+}
+if(window.matchMedia('(display-mode:standalone)').matches||window.navigator.standalone===true)document.getElementById('ib').classList.add('h');
+
+// WebSocket
 function conn(){
   try{ws=new WebSocket('ws://'+location.hostname+':81');}catch(e){sched();return;}
-  ws.onopen=function(){
-    rd=1000;dot(true);
-    clearInterval(ht);
-    ht=setInterval(function(){send({cmd:'heartbeat'});},15000);
-  };
+  ws.onopen=function(){rd=1000;document.getElementById('ddot').className='ddot on';clearInterval(ht);ht=setInterval(function(){send({cmd:'heartbeat'});},15000);};
   ws.onmessage=function(e){try{render(JSON.parse(e.data));}catch(ex){}};
-  ws.onclose=ws.onerror=function(){dot(false);clearInterval(ht);sched();};
+  ws.onclose=ws.onerror=function(){document.getElementById('ddot').className='ddot';clearInterval(ht);sched();};
 }
-function sched(){
-  clearTimeout(rt);
-  rt=setTimeout(function(){rd=Math.min(rd*1.5,10000);conn();},rd);
-}
+function sched(){clearTimeout(rt);rt=setTimeout(function(){rd=Math.min(rd*1.5,10000);conn();},rd);}
 function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
-function dot(ok){
-  document.getElementById('dot').className='dot'+(ok?' ok':'');
-  if(!ok)document.getElementById('ct').textContent='Reconnecting\u2026';
-}
-
-/* ── Render state ── */
-function render(s){
-  S=s;
-  var sb=document.getElementById('sb');
-  var si=document.getElementById('si');
-  var ss=document.getElementById('ss');
-  var sp=document.getElementById('sp');
-
-  if(s.swing){
-    sb.className='sbtn on';
-    si.className='s-ico on'; si.innerHTML='&#9654;'; si.style.fontSize='3.2rem';
-    ss.className='s-st on'; ss.textContent='Swinging';
-    document.getElementById('sl').textContent='motor running';
-    sp.value=s.swingSpd;
-    document.getElementById('sv').textContent=s.swingSpd;
-  } else {
-    sb.className='sbtn';
-    si.className='s-ico'; si.innerHTML='&#9711;'; si.style.fontSize='3.2rem';
-    ss.className='s-st'; ss.textContent='Tap to swing';
-    document.getElementById('sl').textContent='stopped';
-    sp.value=s.swingSpd;
-    document.getElementById('sv').textContent=s.swingSpd;
-  }
-
-  document.getElementById('mf').className=
-    'mb'+((!s.swing&&s.dir==='forward')?' af':'');
-  document.getElementById('mr').className=
-    'mb'+((!s.swing&&s.dir==='reverse')?' ar':'');
-
-  // Timer buttons highlight
-  var tids=[0,15,30,45,60,90];
-  tids.forEach(function(v){
-    var el=document.getElementById('tb'+v);
-    if(el) el.className='tbtn'+(s.timerMins===v?' ta':'');
-  });
-  document.getElementById('tv').textContent=s.timerMins>0?(s.timerMins+'m'):'Off';
-  // Countdown — sync from server, then tick locally
-  if(s.swing&&s.timerSec>=0){
-    startCountdown(s.timerSec);
-  } else {
-    stopCountdown();
-  }
-
-  // Kick-start button highlights
-  [0,60,80,100].forEach(function(v){
-    var el=document.getElementById('kb'+v);
-    if(el)el.className='kbtn'+(s.kickPct===v?' ka':'');
-  });
-  [200,400,600,1000].forEach(function(v){
-    var el=document.getElementById('kd'+v);
-    if(el)el.className='kbtn'+(s.kickMs===v?' ka':'');
-  });
-  document.getElementById('kv').textContent=
-    s.kickPct>0?(s.kickPct+'% / '+s.kickMs+'ms'):'Off';
-
-  document.getElementById('dot').className='dot ok';
-  document.getElementById('ct').textContent=
-    s.clients+' device'+(s.clients!==1?'s':'')+' connected';
-  if(s.fw) document.getElementById('fv').textContent='v'+s.fw;
-}
-
-/* ── Timer ── */
-function setTimer(m){
-  send({cmd:'set_timer',minutes:m});
-}
-function setKick(pct,ms){
-  send({cmd:'set_kick',
-        pct:pct!==null?pct:S.kickPct,
-        ms:ms!==null?ms:S.kickMs});
-}
-function fmtSec(s){
-  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
-  if(h>0) return h+'h '+String(m).padStart(2,'0')+'m '+String(sec).padStart(2,'0')+'s';
-  return String(m).padStart(2,'0')+'m '+String(sec).padStart(2,'0')+'s';
-}
-function startCountdown(secs){
-  clearInterval(cdInt);
-  var rem=secs;
-  function tick(){
-    var el=document.getElementById('tcd');
-    if(rem<=0){el.textContent='';clearInterval(cdInt);return;}
-    el.textContent='⏱ '+fmtSec(rem)+' remaining';
-    rem--;
-  }
-  tick();
-  cdInt=setInterval(tick,1000);
-}
-function stopCountdown(){
-  clearInterval(cdInt);
-  document.getElementById('tcd').textContent='';
-}
-
-/* ── Controls ── */
-function toggleSwing(){
-  if(S.swing){
-    send({cmd:'swing_stop'});
-  } else {
-    send({cmd:'swing_start',
-          speed:parseInt(document.getElementById('sp').value)});
-  }
-}
-var spdTimer;
-function spdInput(v){
-  clearTimeout(spdTimer);
-  spdTimer=setTimeout(function(){
-    if(S.swing) send({cmd:'set_speed',speed:parseInt(v)});
-  },120);
-}
-function manual(dir){
-  send({cmd:'set',dir:dir,speed:parseInt(document.getElementById('sp').value)});
-}
-
 conn();
 </script>
 </body>
@@ -798,14 +965,14 @@ conn();
 
 // ─── Web app manifest ─────────────────────────────────────
 const char MANIFEST[] PROGMEM = R"rawliteral({
-  "name": "Baby Swing Controller",
-  "short_name": "Baby Swing",
-  "description": "Control the baby swing from any device on your WiFi",
+  "name": "RockBox",
+  "short_name": "RockBox",
+  "description": "Control your baby rocker from anywhere in the house",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0a0a0f",
-  "theme_color": "#00d4aa",
+  "background_color": "#F2EEE6",
+  "theme_color": "#F2EEE6",
   "icons": [
     {"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
   ]
@@ -813,9 +980,13 @@ const char MANIFEST[] PROGMEM = R"rawliteral({
 
 // ─── Home screen icon (SVG scales to any size) ────────────
 const char ICON_SVG[] PROGMEM = R"rawliteral(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<circle cx="50" cy="50" r="50" fill="#0a0a0f"/>
-<circle cx="50" cy="50" r="44" fill="none" stroke="#00d4aa" stroke-width="5"/>
-<polygon points="42,32 42,68 72,50" fill="#00d4aa"/>
+<circle cx="50" cy="50" r="50" fill="#F2EEE6"/>
+<circle cx="50" cy="50" r="32" fill="none" stroke="#8FA89A" stroke-width="4"/>
+<circle cx="50" cy="50" r="8" fill="#6B8A7A"/>
+<line x1="50" y1="18" x2="50" y2="14" stroke="#8FA89A" stroke-width="3" stroke-linecap="round"/>
+<line x1="50" y1="82" x2="50" y2="86" stroke="#8FA89A" stroke-width="3" stroke-linecap="round"/>
+<line x1="18" y1="50" x2="14" y2="50" stroke="#8FA89A" stroke-width="3" stroke-linecap="round"/>
+<line x1="82" y1="50" x2="86" y2="50" stroke="#8FA89A" stroke-width="3" stroke-linecap="round"/>
 </svg>)rawliteral";
 
 // ─── WiFi setup portal HTML (served in AP mode) ───────────
@@ -825,7 +996,7 @@ const char AP_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#00d4aa">
-<title>Baby Swing – WiFi Setup</title>
+<title>RockBox – WiFi Setup</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
@@ -1069,7 +1240,7 @@ const char OTA_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#00d4aa">
-<title>Baby Swing – Firmware Update</title>
+<title>RockBox – Firmware Update</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
@@ -1241,7 +1412,7 @@ void handleOTAGithub()
   String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
                   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                   "<meta name='theme-color' content='#00d4aa'>"
-                  "<title>Baby Swing – OTA Check</title>"
+                  "<title>RockBox – OTA Check</title>"
                   "<style>*{margin:0;padding:0;box-sizing:border-box}"
                   "body{background:#0a0a0f;color:#e0e0e8;font-family:system-ui,sans-serif;"
                   "display:flex;flex-direction:column;align-items:center;justify-content:center;"

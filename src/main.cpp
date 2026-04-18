@@ -46,7 +46,7 @@ const char *AP_SSID = "BabySwing-Setup"; // AP mode SSID (open)
 // Increment FW_VERSION each release. Commit version.txt with the
 // same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
-const int FW_VERSION = 23;
+const int FW_VERSION = 25;
 const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────
@@ -65,7 +65,7 @@ const int PWM_FREQ = 5000;
 const int PWM_BITS = 8; // 0–255
 
 // ─── Safety limits ───────────────────────────────────────────
-const int MAX_SPEED_PCT = 80; // hard cap — never exceeded
+const int MAX_SPEED_PCT = 100; // hard cap — never exceeded
 
 // ─── Motor state ─────────────────────────────────────────────
 enum MotorDir
@@ -575,7 +575,7 @@ details.man[open] summary::before{transform:rotate(90deg)}
 
 <div class="card">
   <div class="slab">Speed&nbsp;<b id="sv">40</b>%</div>
-  <input type="range" id="sp" min="10" max="80" value="40"
+  <input type="range" id="sp" min="10" max="100" value="40"
     oninput="document.getElementById('sv').textContent=this.value;spdInput(this.value)">
 </div>
 

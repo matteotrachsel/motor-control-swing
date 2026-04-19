@@ -1,6 +1,6 @@
 /*
  * ============================================================
- *  ESP32 Baby Swing Controller  —  v2.1
+ *  ESP32 RockBox Controller
  * ============================================================
  *
  *  Motor drives a linear axis via crank — always spins in one
@@ -17,7 +17,7 @@
  *    All GNDs connected together!
  *
  *  Access from any device on your WiFi:
- *    http://babyswing.local   (or the IP shown in Serial Monitor)
+ *    http://rockbox.local   (or the IP shown in Serial Monitor)
  *
  *  WebSocket port: 81  (HTTP port: 80)
  *
@@ -38,15 +38,15 @@
 
 // ─── Network config ───────────────────────────────────────────
 // WiFi credentials are stored in NVS (set via AP setup portal).
-const char *HOSTNAME = "babyswing";      // → http://babyswing.local
-const char *AP_SSID = "BabySwing-Setup"; // AP mode SSID (open)
+const char *HOSTNAME = "rockbox";      // → http://rockbox.local
+const char *AP_SSID = "RockBox-Setup"; // AP mode SSID (open)
 // ─────────────────────────────────────────────────────────────
 
 // ─── Firmware version & OTA URLs ─────────────────────────────
 // Increment FW_VERSION each release. Commit version.txt with the
 // same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
-const int FW_VERSION = 30;
+const int FW_VERSION = 32;
 const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────
@@ -524,10 +524,17 @@ body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height
 .gbrs{height:60px;display:flex;align-items:flex-end;gap:2px;padding:0 2px;border-bottom:1px solid var(--line)}
 .gtms{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink3);letter-spacing:.5px;margin-top:4px}
 .sess{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink3);letter-spacing:.8px;padding:0 4px;margin-bottom:16px}
-details.mn>summary{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3);cursor:pointer;list-style:none;padding:8px 2px;display:flex;align-items:center;gap:6px}
-details.mn>summary::-webkit-details-marker{display:none}
-details.mn>summary::before{content:"&#9654;";font-size:8px;transition:transform .2s;display:inline-block}
-details.mn[open]>summary::before{transform:rotate(90deg)}
+.hdr-r{display:flex;align-items:center;gap:10px}
+.gbtn{width:36px;height:36px;border-radius:50%;background:var(--srf);border:1px solid var(--line);color:var(--ink2);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:color .15s,background .15s}
+.gbtn:active{background:var(--srf2);color:var(--ink)}
+.mdl{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:200}
+.mdl.on{display:flex;animation:mfade .18s ease}
+.mdl-inner{background:var(--bg);width:100%;max-width:420px;max-height:88vh;border-radius:18px 18px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));overflow-y:auto;animation:mslide .24s ease}
+.mdl-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.mdl-ttl{font-family:'Fraunces',serif;font-size:22px;font-weight:400;color:var(--ink);letter-spacing:-.5px}
+.mdl-x{width:32px;height:32px;border-radius:50%;background:var(--srf);border:1px solid var(--line);color:var(--ink2);cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center}
+@keyframes mfade{from{opacity:0}to{opacity:1}}
+@keyframes mslide{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .kc{margin-top:8px;padding:14px;background:var(--srf);border:1px solid var(--line);border-radius:14px;margin-bottom:8px}
 .klbl{font-size:10px;color:var(--ink3);margin:8px 0 6px;letter-spacing:.5px;text-transform:uppercase;font-family:'Instrument Sans',sans-serif}
 .klbl:first-child{margin-top:0}
@@ -561,9 +568,11 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <span class="wm-n">RockBox</span>
       <span class="wm-v" id="vbadge">v2</span>
     </div>
-    <div class="dtag">
+    <div class="hdr-r">
       <span class="ddot" id="ddot"></span>
-      <span class="dlbl">ESP32&#183;LIVING</span>
+      <button class="gbtn" onclick="openSetup()" aria-label="Setup">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
     </div>
   </div>
 </div>
@@ -662,8 +671,14 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
     <span id="sesspacket"></span>
   </div>
 
-  <details class="mn" style="margin-bottom:16px">
-    <summary>Manual &middot; Setup</summary>
+</div>
+
+<div id="smod" class="mdl" onclick="if(event.target===this)closeSetup()">
+  <div class="mdl-inner">
+    <div class="mdl-hd">
+      <span class="mdl-ttl">Setup</span>
+      <button class="mdl-x" onclick="closeSetup()">&times;</button>
+    </div>
     <div class="kc">
       <div class="klbl" style="margin-top:0">Boost level</div>
       <div class="kr">
@@ -690,8 +705,7 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <button class="thmbtn" onclick="toggleTheme()">&#9788; Theme</button>
       <a href="/reset-wifi" class="fwlk">Reset WiFi</a>
     </div>
-  </details>
-
+  </div>
 </div>
 
 <div class="ewrap">
@@ -706,7 +720,6 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
 <script>
 var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400,pattern:'steady',fw:0};
 var dialVal=4.0,running=false;
-var eStopPending=false,eStopTimer=null;
 var motion=[],uptimeSec=0,cdInt=null;
 var ws,rt,ht,rd=1000,deferredPrompt=null;
 
@@ -831,18 +844,12 @@ function toggleSwing(){
   else send({cmd:'swing_start',speed:Math.max(10,Math.round(dialVal*10))});
 }
 
-// E-stop
+// E-stop — single-tap, fires immediately
 function eStop(){
-  if(!eStopPending){
-    eStopPending=true;
-    document.getElementById('estop').classList.add('cf');
-    document.getElementById('eslbl').textContent='Tap again to confirm';
-    eStopTimer=setTimeout(function(){eStopPending=false;document.getElementById('estop').classList.remove('cf');document.getElementById('eslbl').textContent='Emergency Stop';},2500);
-    return;
-  }
-  clearTimeout(eStopTimer);eStopPending=false;
-  document.getElementById('estop').classList.remove('cf');document.getElementById('eslbl').textContent='Emergency Stop';
   send({cmd:'stop'});running=false;dialVal=0;updateDial();
+  var el=document.getElementById('estop');
+  el.classList.add('cf');
+  setTimeout(function(){el.classList.remove('cf');},500);
 }
 
 // Render
@@ -870,6 +877,10 @@ setInterval(function(){
   var h=Math.floor(uptimeSec/3600),m=Math.floor((uptimeSec%3600)/60),sc=uptimeSec%60;
   document.getElementById('sessuptime').textContent='UPTIME '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
 },1000);
+
+// Setup modal
+function openSetup(){document.getElementById('smod').classList.add('on');}
+function closeSetup(){document.getElementById('smod').classList.remove('on');}
 
 // Theme
 var darkMode=false;
@@ -1467,7 +1478,7 @@ void startAPMode()
     httpSrv.send(302, "text/plain", ""); });
   httpSrv.begin();
 
-  Serial.println("[AP] Started portal: BabySwing-Setup");
+  Serial.printf("[AP] Started portal: %s\n", AP_SSID);
   Serial.printf("[AP] Connect to WiFi '%s' then open http://192.168.4.1\n", AP_SSID);
   Serial.printf("[AP] (or http://%s)\n", WiFi.softAPIP().toString().c_str());
 }
@@ -1502,7 +1513,7 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println("\n===========================");
-  Serial.println("  Baby Swing Controller v2.1");
+  Serial.printf("  RockBox Controller v%d\n", FW_VERSION);
   Serial.println("===========================");
 
   // Hardware init — motor stopped from the very start

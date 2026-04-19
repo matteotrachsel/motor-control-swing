@@ -46,7 +46,7 @@ const char *AP_SSID = "BabySwing-Setup"; // AP mode SSID (open)
 // Increment FW_VERSION each release. Commit version.txt with the
 // same number to the master branch. Create a GitHub Release and
 // upload firmware.bin as an asset named "firmware.bin".
-const int FW_VERSION = 29;
+const int FW_VERSION = 30;
 const char *GITHUB_VER_URL = "https://raw.githubusercontent.com/matteotrachsel/motor-control-swing/main/version.txt";
 const char *GITHUB_BIN_URL = "https://github.com/matteotrachsel/motor-control-swing/releases/latest/download/firmware.bin";
 // ─── Manual /update page credentials ─────────────────────────
@@ -58,6 +58,9 @@ const char *OTA_PASS = "babyswing"; // change to something personal
 const int PIN_IN1 = 25;
 const int PIN_IN2 = 26;
 const int PIN_ENA = 27; // PWM speed
+
+// ─── Physical toggle button ──────────────────────────────────
+const int PIN_BTN = 18; // INPUT_PULLUP — connect one pin pair to GND
 
 // ─── PWM ─────────────────────────────────────────────────────
 const int PWM_CH = 0;
@@ -95,6 +98,14 @@ ulong g_timerEnd = 0; // millis() when timer fires; 0 = no active timer
 int g_kickPct = 0;   // boost % — 0 = off; typical: 60, 80, 100
 int g_kickMs = 400;  // boost duration ms — typical: 200, 400, 600, 1000
 ulong g_kickEnd = 0; // millis() when kick pulse ends; 0 = not kicking
+
+// ─── Rocking pattern ──────────────────────────────────
+// "steady" = constant speed
+// "wave"   = sinusoidal speed variation (rhythmic)
+// "lull"   = gradual slowdown to help baby fall asleep
+String g_pattern = "steady";
+float  g_wavePhase  = 0.0f;  // advances each pattern tick
+float  g_lullFactor = 1.0f;  // 1.0 → 0.5 over ~5 min
 
 WebServer httpSrv(80);
 WebSocketsServer wsSrv(81);
@@ -183,18 +194,20 @@ String stateJSON()
   int timerSec = -1;
   if (g_timerEnd != 0 && g_swinging)
     timerSec = (g_timerEnd > now2) ? (int)((g_timerEnd - now2) / 1000) : 0;
-  char buf[300];
+  char buf[320];
   snprintf(buf, sizeof(buf),
            "{\"swing\":%s,\"speed\":%d,\"dir\":\"%s\","
            "\"swingSpd\":%d,\"clients\":%d,"
            "\"timerMins\":%d,\"timerSec\":%d,"
            "\"kickPct\":%d,\"kickMs\":%d,"
+           "\"pattern\":\"%s\","
            "\"fw\":%d}",
            g_swinging ? "true" : "false",
            g_spd, dirStr(g_dir),
            g_swingSpd, g_clients,
            g_timerMins, timerSec,
            g_kickPct, g_kickMs,
+           g_pattern.c_str(),
            FW_VERSION);
   return String(buf);
 }
@@ -212,6 +225,7 @@ void saveSettings()
   prefs.putInt("timerMins", g_timerMins);
   prefs.putInt("kickPct", g_kickPct);
   prefs.putInt("kickMs", g_kickMs);
+  prefs.putString("pattern", g_pattern);
   prefs.end();
   Serial.println("[NVS] settings saved");
 }
@@ -332,6 +346,8 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     if (s.length())
       g_swingSpd = constrain(s.toInt(), 5, MAX_SPEED_PCT);
     g_swinging = true;
+    g_wavePhase  = 0.0f;   // reset pattern state
+    g_lullFactor = 1.0f;
     if (g_timerMins > 0)
       g_timerEnd = millis() + (ulong)g_timerMins * 60000UL;
     else
@@ -417,6 +433,19 @@ void onWsEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     broadcast();
     Serial.printf("[Kick] set pct=%d  ms=%d\n", g_kickPct, g_kickMs);
   }
+  else if (cmd == "set_pattern")
+  {
+    String pat = jval(p, "pattern");
+    if (pat == "wave" || pat == "steady" || pat == "lull")
+    {
+      g_pattern    = pat;
+      g_wavePhase  = 0.0f;
+      g_lullFactor = 1.0f;
+      saveSettings();
+      broadcast();
+      Serial.printf("[Pattern] set to %s\n", g_pattern.c_str());
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -442,12 +471,12 @@ const char HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 :root{--bg:#F2EEE6;--srf:#FAF8F3;--srf2:#ECE7DC;--line:#DED6C6;--ink:#2B3A34;--ink2:#5C6A63;--ink3:#8A9489;--sage:#8FA89A;--saged:#6B8A7A;--stop:#B84A3B;--stopd:#9A3A2D}
 .dk{--bg:#1C211F;--srf:#242A27;--srf2:#2E3532;--line:#3A413D;--ink:#EDE8DC;--ink2:#AAB2AD;--ink3:#7A8580;--sage:#A9C2B2;--saged:#8FA89A;--stop:#D45A4B;--stopd:#B84A3B}
 html,body{height:100%;background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;overscroll-behavior:none}
-body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height:100vh;padding-bottom:92px}
+body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height:100vh;padding-bottom:112px}
 #ib{margin:8px 16px 0;background:var(--srf);border:1px solid var(--line);border-radius:14px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:.8rem;font-size:12px;color:var(--ink2)}
 #ib.h{display:none}
 .ibtn{padding:6px 12px;border:1px solid var(--saged);border-radius:8px;background:transparent;color:var(--saged);font-size:11px;font-weight:600;cursor:pointer;font-family:'Instrument Sans',sans-serif}
 .hdr{padding:10px 16px 0}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 0 6px}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px}
 .wm{display:flex;align-items:baseline;gap:6px}
 .wm-n{font-family:'Fraunces',serif;font-size:22px;font-weight:400;color:var(--ink);letter-spacing:-.5px}
 .wm-v{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink3);letter-spacing:1.5px;text-transform:uppercase}
@@ -455,16 +484,8 @@ body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height
 .ddot{width:6px;height:6px;border-radius:50%;background:var(--ink3);transition:background .3s}
 .ddot.on{background:var(--sage)}
 .dlbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink2);letter-spacing:.8px}
-.profs{display:flex;gap:8px;align-items:center;padding:4px 0}
-.prf{display:flex;align-items:center;gap:8px;padding:6px;border-radius:999px;background:transparent;border:1px solid transparent;cursor:pointer;transition:all .18s ease}
-.prf.act{padding:7px 12px 7px 7px;background:var(--srf);border-color:var(--line)}
-.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;letter-spacing:.5px;color:#fff}
-.pnm{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:-.1px}
-.padd{width:34px;height:34px;border-radius:50%;background:transparent;border:1px dashed var(--line);color:var(--ink3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1}
-.stbar{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:8px}
+.stbar{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:4px}
 .sc{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}
-.blbl{color:var(--ink3);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
-.bnm{color:var(--ink);font-family:'Fraunces',serif;font-size:14px}
 .mdot{width:6px;height:6px;border-radius:50%;background:var(--sage)}
 .mlbl{letter-spacing:1.2px;text-transform:uppercase;font-size:11px}
 .dw{padding:18px 16px 8px;display:flex;justify-content:center;position:relative}
@@ -496,17 +517,6 @@ body{display:flex;flex-direction:column;max-width:420px;margin:0 auto;min-height
 .tbt{flex:1;padding:10px 0;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;font-family:'Instrument Sans',sans-serif;font-size:13px;font-weight:500;letter-spacing:.2px;cursor:pointer;transition:all .15s ease}
 .tbt.on{background:var(--ink);color:var(--srf);border-color:var(--ink)}
 .tbt.toff{flex:0.6;color:var(--ink3);font-size:12px}
-.lc{margin-bottom:16px;background:var(--srf);border:1px solid var(--line);border-radius:14px;padding:14px}
-.lrow{display:flex;align-items:center;justify-content:space-between}
-.lico{width:32px;height:32px;border-radius:10px;background:var(--srf2);display:flex;align-items:center;justify-content:center;transition:background .2s}
-.lico.on{background:var(--sage)}
-.tog{width:44px;height:26px;border-radius:999px;background:var(--srf2);border:1px solid var(--line);position:relative;cursor:pointer;padding:0;transition:all .2s ease}
-.tog.on{background:var(--sage);border-color:var(--saged)}
-.tok{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);transition:all .2s ease}
-.tog.on .tok{left:20px}
-.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
-.chip{padding:5px 10px;border-radius:999px;background:transparent;color:var(--ink2);border:1px solid var(--line);font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:.2px;cursor:pointer}
-.chip.on{background:var(--ink);color:var(--srf);border-color:var(--ink)}
 .gc{padding:14px 14px 12px;background:var(--srf);border:1px solid var(--line);border-radius:14px;margin-bottom:16px}
 .ghd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .gttl{font-family:'Instrument Sans',sans-serif;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--ink3)}
@@ -556,19 +566,6 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <span class="dlbl">ESP32&#183;LIVING</span>
     </div>
   </div>
-  <div class="profs">
-    <button class="prf act" data-uid="0" onclick="switchUser(0)">
-      <div class="av" style="background:#6B8A7A">M</div>
-      <span class="pnm">Mama</span>
-    </button>
-    <button class="prf" data-uid="1" onclick="switchUser(1)">
-      <div class="av" style="background:#C9B79C">P</div>
-    </button>
-    <button class="prf" data-uid="2" onclick="switchUser(2)">
-      <div class="av" style="background:#8A9489">F</div>
-    </button>
-    <button class="padd">+</button>
-  </div>
 </div>
 
 <div class="stbar">
@@ -578,12 +575,6 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <path d="M10 17a3 3 0 0 1 4 0"/><circle cx="12" cy="19.5" r=".5" fill="var(--saged)" stroke="none"/>
     </svg>
     <span id="wifist">Connecting</span>
-  </div>
-  <div class="sc">
-    <span class="blbl">Baby</span>
-    <span class="bnm">Ida</span>
-    <span style="color:var(--ink3)">&#183;</span>
-    <span>4 mo</span>
   </div>
   <div class="sc">
     <span class="mdot"></span>
@@ -627,19 +618,19 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
         <path data-stroke="1" d="M2 10 Q 8 2, 14 10 T 26 10 T 38 10" stroke="var(--saged)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
       </svg>
-      <div class="ptlbl">Wave</div><div class="ptdesc">Rising and falling</div>
+      <div class="ptlbl">Wave</div><div class="ptdesc">Rhythmic variation</div>
     </button>
     <button class="ptbtn" data-pat="steady" onclick="setPattern('steady')">
       <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
-        <path data-stroke="1" d="M2 10 L 10 5 L 14 15 L 22 5 L 26 15 L 34 5 L 38 15" stroke="var(--ink3)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        <path data-stroke="1" d="M2 10 L 38 10" stroke="var(--ink3)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
       </svg>
-      <div class="ptlbl">Steady</div><div class="ptdesc">Even tempo</div>
+      <div class="ptlbl">Steady</div><div class="ptdesc">Constant speed</div>
     </button>
     <button class="ptbtn" data-pat="lull" onclick="setPattern('lull')">
       <svg viewBox="0 0 40 20" width="100%" height="22" style="display:block">
         <path data-stroke="1" d="M2 4 Q 10 4, 12 10 T 22 13 T 38 14" stroke="var(--ink3)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
       </svg>
-      <div class="ptlbl">Lull</div><div class="ptdesc">Slow decay</div>
+      <div class="ptlbl">Lull</div><div class="ptdesc">Gradual slowdown</div>
     </button>
   </div>
 
@@ -657,29 +648,6 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
     </div>
   </div>
 
-  <div class="lc">
-    <div class="lrow">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div class="lico" id="lico">
-          <svg id="lsvg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round">
-            <path d="M9 18V6l11-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="16" r="2"/>
-          </svg>
-        </div>
-        <div>
-          <div style="font-family:'Fraunces',serif;font-size:15px;color:var(--ink)">Lullaby</div>
-          <div style="font-family:'Instrument Sans',sans-serif;font-size:11px;color:var(--ink3)" id="ltk">Off</div>
-        </div>
-      </div>
-      <button class="tog" id="ltog" onclick="toggleLullaby()"><div class="tok"></div></button>
-    </div>
-    <div class="chips" id="chips" style="display:none">
-      <button class="chip" data-tk="White noise" onclick="setTrack('White noise')">White noise</button>
-      <button class="chip on" data-tk="Ocean" onclick="setTrack('Ocean')">Ocean</button>
-      <button class="chip" data-tk="Forest" onclick="setTrack('Forest')">Forest</button>
-      <button class="chip" data-tk="Mozart" onclick="setTrack('Mozart')">Mozart</button>
-    </div>
-  </div>
-
   <div class="gc">
     <div class="ghd">
       <div class="gttl">Motion &middot; Last 30 min</div>
@@ -690,8 +658,8 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
   </div>
 
   <div class="sess">
-    <span id="sessuser">SESSION &middot; MA</span>
-    <span id="uptime">UPTIME 00:00:00</span>
+    <span id="sessuptime">UPTIME 00:00:00</span>
+    <span id="sesspacket"></span>
   </div>
 
   <details class="mn" style="margin-bottom:16px">
@@ -717,13 +685,12 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
       <button class="mbt"         onclick="send({cmd:'stop'})">&#9632; Stop</button>
       <button class="mbt rv" id="mr" onclick="manual('reverse')">&#9660; Rev</button>
     </div>
+    <div class="fwrow">
+      <a href="/update"     class="fwlk">Firmware update</a>
+      <button class="thmbtn" onclick="toggleTheme()">&#9788; Theme</button>
+      <a href="/reset-wifi" class="fwlk">Reset WiFi</a>
+    </div>
   </details>
-
-  <div class="fwrow">
-    <a href="/update"     class="fwlk">Firmware update</a>
-    <button class="thmbtn" onclick="toggleTheme()">&#9788; Theme</button>
-    <a href="/reset-wifi" class="fwlk">Reset WiFi</a>
-  </div>
 
 </div>
 
@@ -737,9 +704,8 @@ a.fwlk{font-size:11px;color:var(--ink3);text-decoration:none;font-family:'JetBra
 </div>
 
 <script>
-var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400,fw:0};
-var dialVal=4.0,running=false,pattern='wave',activeUser=0;
-var soundOn=false,soundTrack='Ocean';
+var S={swing:false,speed:0,dir:'stop',swingSpd:40,clients:0,timerMins:0,timerSec:-1,kickPct:0,kickMs:400,pattern:'steady',fw:0};
+var dialVal=4.0,running=false;
 var eStopPending=false,eStopTimer=null;
 var motion=[],uptimeSec=0,cdInt=null;
 var ws,rt,ht,rd=1000,deferredPrompt=null;
@@ -748,8 +714,6 @@ for(var _i=0;_i<60;_i++){
   var _b=2+Math.sin(_i/8)*1.5+Math.cos(_i/5)*1.2;
   motion.push(Math.max(0,Math.min(8,_b+(_i>40?1.8:0))));
 }
-
-var USERS=[{name:'Mama',initials:'M',color:'#6B8A7A'},{name:'Papa',initials:'P',color:'#C9B79C'},{name:'Farmor',initials:'F',color:'#8A9489'}];
 
 // Dial
 var CX=120,CY=120,R_T=98,R_O=116,SD=-220,SWEEP=260;
@@ -813,42 +777,18 @@ var spdTmr;
 function scheduleSpdSend(){clearTimeout(spdTmr);spdTmr=setTimeout(function(){if(running)send({cmd:'set_speed',speed:Math.round(dialVal*10)});},120);}
 initDial();
 
-// Profiles
-function switchUser(uid){
-  activeUser=uid;
-  document.querySelectorAll('[data-uid]').forEach(function(b){
-    var u=parseInt(b.dataset.uid),usr=USERS[u],on=u===uid;
-    b.className='prf'+(on?' act':'');
-    b.innerHTML='<div class="av" style="background:'+usr.color+'">'+usr.initials+'</div>'+(on?'<span class="pnm">'+usr.name+'</span>':'');
-    b.onclick=(function(id){return function(){switchUser(id);};})(u);
-  });
-  document.getElementById('sessuser').textContent='SESSION \u00B7 '+['MA','PA','FA'][uid];
-}
-
 // Pattern
 function setPattern(p){
-  pattern=p;
+  send({cmd:'set_pattern',pattern:p});
+  updatePatternUI(p);
+}
+function updatePatternUI(p){
   document.querySelectorAll('.ptbtn').forEach(function(b){
     var on=b.dataset.pat===p;
     b.className='ptbtn'+(on?' on':'');
     var path=b.querySelector('[data-stroke]');
     if(path)path.setAttribute('stroke',on?'var(--saged)':'var(--ink3)');
   });
-}
-
-// Lullaby
-function toggleLullaby(){
-  soundOn=!soundOn;
-  document.getElementById('ltog').className='tog'+(soundOn?' on':'');
-  document.getElementById('lico').className='lico'+(soundOn?' on':'');
-  document.getElementById('lsvg').setAttribute('stroke',soundOn?'#fff':'var(--ink2)');
-  document.getElementById('chips').style.display=soundOn?'flex':'none';
-  document.getElementById('ltk').textContent=soundOn?soundTrack:'Off';
-}
-function setTrack(tk){
-  soundTrack=tk;
-  document.querySelectorAll('.chip').forEach(function(c){c.className='chip'+(c.dataset.tk===tk?' on':'');});
-  document.getElementById('ltk').textContent=tk;
 }
 
 // Motion graph
@@ -910,6 +850,7 @@ function render(s){
   S=s;running=!!s.swing;
   dialVal=Math.max(0,Math.min(10,Math.round(s.swingSpd)/10));
   updateDial();
+  if(s.pattern)updatePatternUI(s.pattern);
   [0,15,30,45,60].forEach(function(v){var el=document.getElementById('tb'+v);if(el)el.className=(v===0?'tbt toff':'tbt')+(s.timerMins===v?' on':'');});
   if(s.swing&&s.timerSec>=0)startCountdown(s.timerSec);
   else{stopCountdown();if(s.timerMins>0)document.getElementById('tcd2').textContent=s.timerMins+':00';}
@@ -918,7 +859,7 @@ function render(s){
   document.getElementById('mf').className='mbt fw'+((!s.swing&&s.dir==='forward')?' on':'');
   document.getElementById('mr').className='mbt rv'+((!s.swing&&s.dir==='reverse')?' on':'');
   document.getElementById('ddot').className='ddot on';
-  document.getElementById('wifist').textContent=s.clients+' device'+(s.clients!==1?'s':'');
+  document.getElementById('wifist').textContent=s.clients+' device'+(s.clients!==1?'s':'')+' connected';
   if(s.fw)document.getElementById('vbadge').textContent='v'+s.fw;
   addMotionPt(running?dialVal:0);
 }
@@ -927,7 +868,7 @@ function render(s){
 setInterval(function(){
   uptimeSec++;
   var h=Math.floor(uptimeSec/3600),m=Math.floor((uptimeSec%3600)/60),sc=uptimeSec%60;
-  document.getElementById('uptime').textContent='UPTIME '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
+  document.getElementById('sessuptime').textContent='UPTIME '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
 },1000);
 
 // Theme
@@ -995,51 +936,40 @@ const char AP_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<meta name="theme-color" content="#00d4aa">
+<meta name="theme-color" content="#F2EEE6">
 <title>RockBox – WiFi Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@300;400&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
-      --acc:#00d4aa;--red:#ff4466}
-html,body{min-height:100%;background:var(--bg);color:var(--txt);
-  font-family:system-ui,-apple-system,sans-serif}
-body{display:flex;flex-direction:column;align-items:center;
-  padding:2rem 1rem;max-width:420px;margin:0 auto;gap:1.4rem}
-.hdr-t{font-size:1rem;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--acc);font-weight:700;align-self:flex-start}
-.sub{font-size:.72rem;color:var(--dim);align-self:flex-start;margin-top:-.8rem}
-.card{width:100%;background:var(--srf);border:1px solid var(--bdr);
-  border-radius:12px;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
-.irow{display:flex;gap:.5rem;align-items:stretch}
-input[type=text],input[type=password]{flex:1;background:var(--bg);
-  border:1px solid var(--bdr);border-radius:7px;padding:.65rem .8rem;
-  color:var(--txt);font-size:.88rem;outline:none;width:100%}
-input:focus{border-color:var(--acc)}
-.scan-btn,.show-btn{padding:.65rem .9rem;border:1px solid var(--bdr);
-  border-radius:7px;background:var(--bg);color:var(--dim);font-size:.73rem;
-  font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.05em}
-.scan-btn:active,.show-btn:active{background:var(--bdr)}
-.scan-btn:disabled{opacity:.45;cursor:default}
-select#netlist{width:100%;background:var(--bg);border:1px solid var(--bdr);
-  border-radius:7px;padding:.45rem .5rem;color:var(--txt);font-size:.82rem;
-  display:none;margin-top:.4rem}
-.save-btn{width:100%;padding:1rem;border:none;border-radius:10px;
-  background:var(--acc);color:#0a0a0f;font-size:.9rem;font-weight:700;
-  letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
-.save-btn:active{opacity:.8}
+:root{--paper:#F2EEE6;--sage:#8FA89A;--forest:#2B3A34;--ink:#1C2B26;--mist:#D4CFC6;--err:#C0392B}
+html,body{min-height:100%;background:var(--paper);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;padding:2.5rem 1.2rem;max-width:400px;margin:0 auto;gap:1.6rem}
+.wordmark{font-family:'Fraunces',Georgia,serif;font-size:1.6rem;font-weight:300;color:var(--forest);letter-spacing:.02em;align-self:flex-start}
+.sub{font-size:.78rem;color:var(--sage);align-self:flex-start;margin-top:-.9rem;letter-spacing:.02em}
+.card{width:100%;background:#fff;border:1px solid var(--mist);border-radius:14px;padding:1.4rem;display:flex;flex-direction:column;gap:1rem}
+label{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--sage);font-weight:500}
+.irow{display:flex;gap:.5rem;align-items:stretch;margin-top:.35rem}
+input[type=text],input[type=password]{flex:1;background:var(--paper);border:1px solid var(--mist);border-radius:8px;padding:.7rem .9rem;color:var(--ink);font-size:.88rem;outline:none;font-family:inherit;width:100%}
+input:focus{border-color:var(--sage)}
+.scan-btn,.show-btn{padding:.7rem .9rem;border:1px solid var(--mist);border-radius:8px;background:var(--paper);color:var(--sage);font-size:.72rem;font-weight:500;cursor:pointer;white-space:nowrap;letter-spacing:.06em;font-family:inherit}
+.scan-btn:active,.show-btn:active{background:var(--mist)}
+.scan-btn:disabled{opacity:.4;cursor:default}
+select#netlist{width:100%;background:var(--paper);border:1px solid var(--mist);border-radius:8px;padding:.5rem .6rem;color:var(--ink);font-size:.82rem;display:none;margin-top:.4rem;font-family:inherit}
+.save-btn{width:100%;padding:1rem;border:none;border-radius:10px;background:var(--sage);color:#fff;font-size:.88rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;font-family:inherit}
+.save-btn:active{opacity:.85}
 .save-btn:disabled{opacity:.4;cursor:default}
-#msg{font-size:.8rem;text-align:center;min-height:1.2em;line-height:1.5}
-.ok{color:var(--acc)}.err{color:var(--red)}
+#msg{font-size:.78rem;text-align:center;min-height:1.2em;line-height:1.6;color:var(--sage)}
+.err{color:var(--err)!important}
 </style>
 </head>
 <body>
-<span class="hdr-t">Baby Swing</span>
+<span class="wordmark">RockBox</span>
 <span class="sub">One-time WiFi setup &mdash; credentials are stored on the device</span>
 <div class="card">
   <div>
     <label>WiFi Network (SSID)</label>
-    <div class="irow" style="margin-top:.4rem">
+    <div class="irow">
       <input type="text" id="ssid" placeholder="Network name"
         autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
       <button class="scan-btn" id="scanbtn" onclick="doScan()">Scan</button>
@@ -1049,7 +979,7 @@ select#netlist{width:100%;background:var(--bg);border:1px solid var(--bdr);
   </div>
   <div>
     <label>Password</label>
-    <div class="irow" style="margin-top:.4rem">
+    <div class="irow">
       <input type="password" id="pass" placeholder="WiFi password" autocomplete="off">
       <button class="show-btn" id="showbtn" onclick="togglePwd()">Show</button>
     </div>
@@ -1075,7 +1005,7 @@ function doScan(){
     btn.textContent='Scan';btn.disabled=false;
   }).catch(function(){
     btn.textContent='Scan';btn.disabled=false;
-    showMsg('Scan failed — enter SSID manually','err');
+    showMsg('Scan failed \u2014 enter SSID manually','err');
   });
 }
 function togglePwd(){
@@ -1096,16 +1026,16 @@ function doSave(){
   if(pass.length>64){showMsg('Password too long (max 64 chars)','err');return;}
   var btn=document.getElementById('savebtn');
   btn.disabled=true;
-  showMsg('Saving\u2026','ok');
+  showMsg('Saving\u2026');
   var body='ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass);
   fetch('/save',{method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body:body})
   .then(function(){
-    showMsg('Saved! The device will restart and connect to \u201C'+ssid+
-      '\u201D.\n\nReconnect your phone to that WiFi network, then open\nhttp://babyswing.local','ok');
+    showMsg('Saved! Device will restart and connect to \u201C'+ssid+
+      '\u201D. Reconnect your phone to that network, then open http://rockbox.local');
   }).catch(function(){
-    showMsg('Saved! Device is restarting\u2026','ok');
+    showMsg('Saved! Device is restarting\u2026');
   });
 }
 </script>
@@ -1239,45 +1169,35 @@ const char OTA_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<meta name="theme-color" content="#00d4aa">
+<meta name="theme-color" content="#F2EEE6">
 <title>RockBox – Firmware Update</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@300;400&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0f;--srf:#13131a;--bdr:#1e1e2a;--txt:#e0e0e8;--dim:#6b6b80;
-      --acc:#00d4aa;--red:#ff4466}
-html,body{min-height:100%;background:var(--bg);color:var(--txt);
-  font-family:system-ui,-apple-system,sans-serif}
-body{display:flex;flex-direction:column;align-items:center;
-  padding:2rem 1rem;max-width:420px;margin:0 auto;gap:1.4rem}
-.hdr-t{font-size:1rem;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--acc);font-weight:700;align-self:flex-start}
-.sub{font-size:.72rem;color:var(--dim);align-self:flex-start;margin-top:-.8rem}
-.card{width:100%;background:var(--srf);border:1px solid var(--bdr);
-  border-radius:12px;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
-.ver{font-size:.75rem;color:var(--dim)}
-.ver b{color:var(--txt)}
-label.pick{display:flex;flex-direction:column;gap:.4rem;
-  font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
-  cursor:pointer}
-input[type=file]{background:var(--bg);border:1px solid var(--bdr);
-  border-radius:7px;padding:.6rem .8rem;color:var(--txt);font-size:.82rem;width:100%}
-.up-btn{width:100%;padding:1rem;border:none;border-radius:10px;
-  background:var(--acc);color:#0a0a0f;font-size:.9rem;font-weight:700;
-  letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
-.up-btn:active{opacity:.8}
+:root{--paper:#F2EEE6;--sage:#8FA89A;--forest:#2B3A34;--ink:#1C2B26;--mist:#D4CFC6;--err:#C0392B}
+html,body{min-height:100%;background:var(--paper);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;padding:2.5rem 1.2rem;max-width:400px;margin:0 auto;gap:1.6rem}
+.wordmark{font-family:'Fraunces',Georgia,serif;font-size:1.6rem;font-weight:300;color:var(--forest);letter-spacing:.02em;align-self:flex-start}
+.sub{font-size:.78rem;color:var(--sage);align-self:flex-start;margin-top:-.9rem;letter-spacing:.02em}
+.card{width:100%;background:#fff;border:1px solid var(--mist);border-radius:14px;padding:1.4rem;display:flex;flex-direction:column;gap:1rem}
+.ver{font-size:.78rem;color:var(--sage)}
+.ver b{color:var(--ink)}
+label.pick{display:flex;flex-direction:column;gap:.4rem;font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--sage);font-weight:500;cursor:pointer}
+input[type=file]{background:var(--paper);border:1px solid var(--mist);border-radius:8px;padding:.6rem .8rem;color:var(--ink);font-size:.82rem;width:100%;font-family:inherit}
+.up-btn{width:100%;padding:1rem;border:none;border-radius:10px;background:var(--sage);color:#fff;font-size:.88rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;font-family:inherit}
+.up-btn:active{opacity:.85}
 .up-btn:disabled{opacity:.4;cursor:default}
-.bar-wrap{width:100%;height:10px;background:var(--bdr);border-radius:5px;
-  overflow:hidden;display:none}
-.bar{height:100%;width:0%;background:var(--acc);border-radius:5px;
-  transition:width .2s}
-#msg{font-size:.8rem;text-align:center;min-height:1.2em;line-height:1.5}
-.ok{color:var(--acc)}.err{color:var(--red)}
-a.back{font-size:.65rem;color:var(--dim);text-decoration:none}
-a.back:hover{color:var(--txt)}
+.bar-wrap{width:100%;height:6px;background:var(--mist);border-radius:3px;overflow:hidden;display:none}
+.bar{height:100%;width:0%;background:var(--sage);border-radius:3px;transition:width .2s}
+#msg{font-size:.78rem;text-align:center;min-height:1.2em;line-height:1.6;color:var(--sage)}
+.err{color:var(--err)!important}
+a.back{font-size:.7rem;color:var(--sage);text-decoration:none;opacity:.7}
+a.back:hover{opacity:1}
 </style>
 </head>
 <body>
-<span class="hdr-t">Baby Swing</span>
+<span class="wordmark">RockBox</span>
 <span class="sub">Firmware update &mdash; upload a file or check GitHub for a newer version</span>
 <div class="card">
   <div class="ver">Current firmware: <b>v__VER__</b></div>
@@ -1304,7 +1224,7 @@ function doUpload(){
   var bw=document.getElementById('bw');
   var bar=document.getElementById('bar');
   bw.style.display='block';
-  showMsg('Uploading\u2026','ok');
+  showMsg('Uploading\u2026');
   var fd=new FormData();
   fd.append('firmware',f,f.name);
   var xhr=new XMLHttpRequest();
@@ -1312,13 +1232,13 @@ function doUpload(){
     if(e.lengthComputable){
       var p=Math.round(e.loaded/e.total*100);
       bar.style.width=p+'%';
-      showMsg('Uploading\u2026 '+p+'%','ok');
+      showMsg('Uploading\u2026 '+p+'%');
     }
   };
   xhr.onload=function(){
     bar.style.width='100%';
     if(xhr.status===200&&xhr.responseText==='OK'){
-      showMsg('Flashed successfully \u2014 device is rebooting\u2026','ok');
+      showMsg('Flashed \u2014 device is rebooting\u2026');
     } else {
       showMsg('Error: '+(xhr.responseText||'Upload failed'),'err');
       btn.disabled=false;
@@ -1411,20 +1331,24 @@ void handleOTAGithub()
   // Send page first — if update found the device reboots, if not the JS redirects back.
   String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
                   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                  "<meta name='theme-color' content='#00d4aa'>"
-                  "<title>RockBox – OTA Check</title>"
+                  "<meta name='theme-color' content='#F2EEE6'>"
+                  "<title>RockBox \u2013 OTA Check</title>"
+                  "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+                  "<link href='https://fonts.googleapis.com/css2?family=Fraunces:wght@300&family=Instrument+Sans:wght@400&display=swap' rel='stylesheet'>"
                   "<style>*{margin:0;padding:0;box-sizing:border-box}"
-                  "body{background:#0a0a0f;color:#e0e0e8;font-family:system-ui,sans-serif;"
+                  "body{background:#F2EEE6;color:#1C2B26;font-family:'Instrument Sans',system-ui,sans-serif;"
                   "display:flex;flex-direction:column;align-items:center;justify-content:center;"
-                  "min-height:100vh;gap:1rem;padding:2rem}"
-                  "p{font-size:.9rem;color:#6b6b80;text-align:center}"
-                  ".spin{width:36px;height:36px;border:3px solid #1e1e2a;"
-                  "border-top-color:#00d4aa;border-radius:50%;"
-                  "animation:spin 1s linear infinite}"
+                  "min-height:100vh;gap:1.2rem;padding:2rem}"
+                  "h1{font-family:'Fraunces',Georgia,serif;font-size:1.4rem;font-weight:300;color:#2B3A34}"
+                  "p{font-size:.82rem;color:#8FA89A;text-align:center;line-height:1.6}"
+                  ".spin{width:32px;height:32px;border:2px solid #D4CFC6;"
+                  "border-top-color:#8FA89A;border-radius:50%;"
+                  "animation:spin .9s linear infinite}"
                   "@keyframes spin{to{transform:rotate(360deg)}}"
                   "</style></head><body>"
                   "<div class='spin'></div>"
-                  "<p>Checking GitHub for firmware update&hellip;<br>"
+                  "<h1>Checking for update</h1>"
+                  "<p>Comparing with GitHub&hellip;<br>"
                   "Device will reboot automatically if a newer version is found.</p>"
                   "<script>setTimeout(function(){window.location='/update';},30000);</script>"
                   "</body></html>");
@@ -1448,13 +1372,20 @@ void handleResetWifi()
   httpSrv.send(200, "text/html; charset=utf-8",
                "<html><head><meta charset='UTF-8'>"
                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-               "<meta name='theme-color' content='#00d4aa'>"
-               "<style>body{background:#0a0a0f;color:#e0e0e8;"
-               "font-family:system-ui,sans-serif;text-align:center;padding:2rem}"
-               "h2{color:#00d4aa}p{margin-top:1rem;color:#6b6b80;font-size:.85rem}</style></head>"
+               "<meta name='theme-color' content='#F2EEE6'>"
+               "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+               "<link href='https://fonts.googleapis.com/css2?family=Fraunces:wght@300;400&family=Instrument+Sans:wght@400&display=swap' rel='stylesheet'>"
+               "<style>*{margin:0;padding:0;box-sizing:border-box}"
+               "body{background:#F2EEE6;color:#1C2B26;font-family:'Instrument Sans',system-ui,sans-serif;"
+               "display:flex;flex-direction:column;align-items:center;justify-content:center;"
+               "min-height:100vh;gap:1rem;padding:2rem;text-align:center}"
+               "h2{font-family:'Fraunces',Georgia,serif;font-size:1.5rem;font-weight:300;color:#2B3A34}"
+               "p{font-size:.82rem;color:#8FA89A;line-height:1.6;max-width:280px}"
+               "b{color:#1C2B26;font-weight:500}"
+               "</style></head>"
                "<body><h2>WiFi Reset</h2>"
                "<p>Credentials cleared. Device is restarting into setup mode.</p>"
-               "<p>Connect to WiFi <b>BabySwing-Setup</b> to reconfigure.</p>"
+               "<p>Connect to WiFi <b>RockBox-Setup</b> to reconfigure.</p>"
                "</body></html>");
   delay(1500);
   ESP.restart();
@@ -1580,13 +1511,15 @@ void setup()
   ledcSetup(PWM_CH, PWM_FREQ, PWM_BITS);
   ledcAttachPin(PIN_ENA, PWM_CH);
   hardStop();
+  pinMode(PIN_BTN, INPUT_PULLUP);
 
   // Load persisted swing settings from NVS
   prefs.begin("swing", true);
-  g_swingSpd = prefs.getInt("swingSpd", g_swingSpd);
+  g_swingSpd  = prefs.getInt("swingSpd", g_swingSpd);
   g_timerMins = prefs.getInt("timerMins", g_timerMins);
-  g_kickPct = prefs.getInt("kickPct", g_kickPct);
-  g_kickMs = prefs.getInt("kickMs", g_kickMs);
+  g_kickPct   = prefs.getInt("kickPct", g_kickPct);
+  g_kickMs    = prefs.getInt("kickMs", g_kickMs);
+  g_pattern   = prefs.getString("pattern", g_pattern);
   prefs.end();
   Serial.printf("[NVS] swingSpd=%d  timerMins=%d  kickPct=%d  kickMs=%d\n",
                 g_swingSpd, g_timerMins, g_kickPct, g_kickMs);
@@ -1660,6 +1593,32 @@ void loop()
   wsSrv.loop();
   now = millis();
 
+  // Physical button: debounced toggle (50 ms) — starts or stops swing
+  static bool  btnLast    = HIGH;
+  static ulong btnDebTime = 0;
+  bool btnNow = digitalRead(PIN_BTN);
+  if (btnNow != btnLast) btnDebTime = now;
+  if (now - btnDebTime > 50 && btnNow == LOW && btnLast != LOW)
+  {
+    // Falling edge confirmed after debounce
+    if (g_swinging)
+    {
+      hardStop();
+      Serial.println("[BTN] Stop");
+    }
+    else
+    {
+      g_swinging   = true;
+      g_wavePhase  = 0.0f;
+      g_lullFactor = 1.0f;
+      g_timerEnd   = g_timerMins > 0 ? now + (ulong)g_timerMins * 60000UL : 0UL;
+      applyMotor(MFWD, g_swingSpd);
+      Serial.printf("[BTN] Start spd=%d pattern=%s\n", g_swingSpd, g_pattern.c_str());
+    }
+    broadcast();
+  }
+  btnLast = btnNow;
+
   // Run-timer: stop motor when the user-set duration elapses.
   // Motor keeps running after phone disconnects until timer fires.
   if (g_swinging && g_timerEnd != 0 && now >= g_timerEnd)
@@ -1678,6 +1637,28 @@ void loop()
       Serial.printf("[Kick] done — running at %d%%\n", g_swingSpd);
     }
   }
-  // No swing state machine needed: motor just keeps running in FWD.
-  // The crank mechanism converts rotation to back-and-forth swing.
+
+  // Pattern tick — runs every 500 ms while swinging (not during kick)
+  static ulong patternTick = 0;
+  if (g_swinging && g_kickEnd == 0 && now - patternTick >= 500)
+  {
+    patternTick = now;
+    if (g_pattern == "wave")
+    {
+      // Sinusoidal variation: speed oscillates ±25% around target, period ~4 s
+      g_wavePhase += 0.785f; // π/4 per tick → 8 ticks = 4 s full cycle
+      float factor = 0.75f + 0.25f * sinf(g_wavePhase);
+      int spd = constrain((int)(g_swingSpd * factor), 5, MAX_SPEED_PCT);
+      applyMotor(MFWD, spd);
+    }
+    else if (g_pattern == "lull")
+    {
+      // Gradual decay: full speed → 50% over ~5 min (600 ticks × 500 ms)
+      g_lullFactor -= 0.000833f;
+      if (g_lullFactor < 0.5f) g_lullFactor = 0.5f;
+      int spd = constrain((int)(g_swingSpd * g_lullFactor), 5, MAX_SPEED_PCT);
+      applyMotor(MFWD, spd);
+    }
+    // steady: no speed change needed
+  }
 }

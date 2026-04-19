@@ -32,7 +32,18 @@ jobs:
           CURRENT=$(cat version.txt | tr -d '[:space:]')
           NEW=$(( CURRENT + 1 ))
           echo $NEW > version.txt
-          sed -i "s/const int   FW_VERSION     = [0-9]*/const int   FW_VERSION     = $NEW/" src/main.cpp
+
+          # Whitespace-tolerant substitution for `const int FW_VERSION = N;`
+          sed -i -E "s/(const int[[:space:]]+FW_VERSION[[:space:]]*=[[:space:]]*)[0-9]+/\1$NEW/" src/main.cpp
+
+          # Fail loudly if the sed didn't actually update FW_VERSION — keeps
+          # version.txt and the compiled binary from drifting out of sync.
+          if ! grep -qE "FW_VERSION[[:space:]]*=[[:space:]]*$NEW[[:space:]]*;" src/main.cpp; then
+            echo "ERROR: Failed to patch FW_VERSION in src/main.cpp to $NEW"
+            grep -n "FW_VERSION" src/main.cpp || true
+            exit 1
+          fi
+
           echo "ver=$NEW" >> $GITHUB_OUTPUT
           echo "Bumped: $CURRENT → $NEW"
 
